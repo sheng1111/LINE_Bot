@@ -7,22 +7,27 @@ logger = logging.getLogger(__name__)
 
 def get_stock_info(stock_code: str) -> dict:
     """
-    獲取股票資訊
-    :param stock_code: 股票代碼
-    :return: 股票資訊字典
+    获取股票信息
+    :param stock_code: 股票代码
+    :return: 股票信息字典
     """
     try:
-        # 添加 .TW 後綴以獲取台灣股票資訊
+        # 添加 .TW 后缀以获取台湾股票信息
         ticker = yf.Ticker(f"{stock_code}.TW")
 
-        # 獲取基本信息
+        # 获取基本信息
         info = ticker.info
+        if not info:
+            logger.warning(f"无法获取股票 {stock_code} 的基本信息")
+            return {}
 
-        # 獲取當前價格
-        current_price = ticker.history(period="1d")["Close"].iloc[-1]
+        # 获取当前价格
+        history = ticker.history(period="1d")
+        if history.empty:
+            logger.warning(f"无法获取股票 {stock_code} 的历史数据")
+            return {}
 
-        # 獲取最近一年的歷史數據
-        history = ticker.history(period="1y")
+        current_price = history["Close"].iloc[-1]
 
         return {
             "name": info.get("longName", "未知"),
@@ -36,8 +41,8 @@ def get_stock_info(stock_code: str) -> dict:
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
     except Exception as e:
-        logger.error(f"獲取股票 {stock_code} 資訊時發生錯誤: {str(e)}")
-        return None
+        logger.error(f"获取股票 {stock_code} 信息时发生错误: {str(e)}")
+        return {}  # 返回空字典而不是 None
 
 
 def format_stock_info(stock_info: dict) -> str:

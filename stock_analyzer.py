@@ -7,6 +7,8 @@ import logging
 from datetime import datetime, timedelta
 from database import db
 import time
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
@@ -23,11 +25,24 @@ class StockAnalyzer:
             'volume_analysis': self._analyze_volume
         }
         self.last_request_time = {}
-        self.request_interval = 1  # 秒
+        self.request_interval = 5  # 增加到 5 秒
+        self.max_retries = 3
+        self.retry_delay = 5  # 重試等待時間
 
-    def _get_with_retry(self, stock_code: str, func: callable, max_retries: int = 3) -> Any:
+        # 設定 requests session
+        self.session = requests.Session()
+        retries = Retry(
+            total=5,  # 總重試次數
+            backoff_factor=1,  # 重試間隔
+            status_forcelist=[429, 500, 502, 503, 504],  # 需要重試的狀態碼
+            allowed_methods=["HEAD", "GET", "OPTIONS"]  # 允許重試的請求方法
+        )
+        self.session.mount("https://", HTTPAdapter(max_retries=retries))
+        yf.base.base._BASE_URL_ = "https://query2.finance.yahoo.com"  # 使用備用 API 端點
+
+    def _get_with_retry(self, stock_code: str, func: callable) -> Any:
         """帶有重試機制的請求函數"""
-        for attempt in range(max_retries):
+        for attempt in range(self.max_retries):
             try:
                 # 檢查請求間隔
                 current_time = time.time()
@@ -35,22 +50,33 @@ class StockAnalyzer:
                     time_since_last = current_time - \
                         self.last_request_time[stock_code]
                     if time_since_last < self.request_interval:
-                        time.sleep(self.request_interval - time_since_last)
+                        wait_time = self.request_interval - time_since_last
+                        logger.warning(f"請求過於頻繁，等待 {int(wait_time)} 秒後重試")
+                        time.sleep(wait_time)
 
-                result = func(stock_code)
+                # 使用自定義的 session
+                ticker = yf.Ticker(stock_code)
+                ticker._session = self.session  # 使用自定義的 session
+
+                result = func(ticker)
+                if result is None:
+                    raise ValueError("API returned None")
+
                 self.last_request_time[stock_code] = time.time()
                 return result
 
             except Exception as e:
-                if "Too Many Requests" in str(e):
-                    wait_time = (attempt + 1) * 5  # 遞增等待時間
+                if "429" in str(e):
+                    wait_time = (attempt + 1) * self.retry_delay
                     logger.warning(f"請求過於頻繁，等待 {wait_time} 秒後重試")
                     time.sleep(wait_time)
                 else:
                     logger.error(f"獲取股票 {stock_code} 資訊時發生錯誤: {str(e)}")
-                    if attempt == max_retries - 1:
-                        raise
-                    time.sleep(2)
+                    if attempt == self.max_retries - 1:
+                        return {}
+                    time.sleep(self.retry_delay)
+
+        return {}
 
     def get_stock_info(self, stock_code: str) -> Dict[str, Any]:
         """
@@ -70,9 +96,8 @@ class StockAnalyzer:
                 if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
                     return cache_data['data']
 
-            def _fetch_info(code):
-                stock = yf.Ticker(f"{code}.TW")
-                info = stock.info
+            def _fetch_info(ticker):
+                info = ticker.info
                 return {
                     'name': info.get('longName', ''),
                     'current_price': info.get('regularMarketPrice', 0),
@@ -105,9 +130,8 @@ class StockAnalyzer:
                 if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
                     return cache_data['data']
 
-            def _fetch_technical(code):
-                stock = yf.Ticker(f"{code}.TW")
-                hist = stock.history(period="6mo")
+            def _fetch_technical(ticker):
+                hist = ticker.history(period="6mo")
                 result = {}
                 for indicator, func in self.technical_indicators.items():
                     result[indicator] = func(hist)
@@ -136,9 +160,8 @@ class StockAnalyzer:
                 if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
                     return cache_data['data']
 
-            def _fetch_sentiment(code):
-                stock = yf.Ticker(f"{code}.TW")
-                info = stock.info
+            def _fetch_sentiment(ticker):
+                info = ticker.info
                 return {
                     'margin_trading': {
                         'margin_balance': info.get('marginBalance', 0),
@@ -177,10 +200,9 @@ class StockAnalyzer:
                 if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
                     return cache_data['data']
 
-            def _fetch_fundamental(code):
-                stock = yf.Ticker(f"{code}.TW")
-                info = stock.info
-                financials = stock.financials
+            def _fetch_fundamental(ticker):
+                info = ticker.info
+                financials = ticker.financials
                 return {
                     'cash_flow': {
                         'operating_cash_flow': financials.loc['Operating Cash Flow'].iloc[0] if 'Operating Cash Flow' in financials.index else 0,
@@ -275,31 +297,94 @@ class StockAnalyzer:
         """
         try:
             stock_info = self.get_stock_info(stock_code)
+            if not stock_info:
+                return f"""抱歉，我暫時無法獲取 {stock_code} 的股票資訊 😅
+
+可能的原因：
+1. 網路連線不穩定
+2. 股票代碼可能有誤
+3. 資料來源暫時無回應
+
+建議您：
+✓ 確認股票代碼是否正確
+✓ 稍後再試一次
+✓ 如果問題持續發生，可以先查看其他股票資訊
+
+需要我為您查詢其他股票嗎？😊"""
 
             # 生成分析報告
             report = f"""
-股票代碼：{stock_info['stock_code']}
-股票名稱：{stock_info['name']}
-當前價格：{stock_info['price']}
-漲跌幅：{stock_info['change']}%
-成交量：{stock_info['volume']}
+📊 {stock_info['name']} ({stock_code}) 股票分析報告
 
-技術分析：
-- 短期趨勢：上漲
-- 支撐位：95.0
-- 壓力位：105.0
+💰 基本資訊
+• 當前價格：${stock_info['current_price']}
+• 漲跌幅：{stock_info['change']}%
+• 成交量：{stock_info['volume']:,}
 
-投資建議：
-- 短期：觀望
-- 中期：逢低買進
-- 長期：持有
+📈 技術分析
+• 短期趨勢：{self._get_trend_description(stock_info)}
+• 支撐位：${stock_info.get('support', '暫無數據')}
+• 壓力位：${stock_info.get('resistance', '暫無數據')}
+
+💡 投資建議
+• 短期：{self._get_short_term_advice(stock_info)}
+• 中期：{self._get_mid_term_advice(stock_info)}
+• 長期：{self._get_long_term_advice(stock_info)}
+
+⚠️ 風險提醒：
+投資有賺有賠，請審慎評估風險，並建議分散投資降低風險。
+
+更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             """
 
             return report
 
         except Exception as e:
             logger.error(f"分析股票時發生錯誤：{str(e)}")
-            return "抱歉，分析股票時發生錯誤，請稍後再試。"
+            return """非常抱歉，在分析過程中遇到了一些技術問題 😅
+
+讓我們試試看：
+1. 重新查詢一次
+2. 換個時間再試
+3. 查看其他股票資訊
+
+您想要怎麼做呢？我很樂意協助您！ 😊"""
+
+    def _get_trend_description(self, stock_info: Dict[str, Any]) -> str:
+        """根據股票資訊生成趨勢描述"""
+        if not stock_info.get('change'):
+            return "持平"
+        change = stock_info['change']
+        if change > 3:
+            return "強勢上漲 📈"
+        elif change > 0:
+            return "緩步上揚 ↗"
+        elif change > -3:
+            return "輕微下跌 ↘"
+        else:
+            return "明顯下跌 📉"
+
+    def _get_short_term_advice(self, stock_info: Dict[str, Any]) -> str:
+        """生成短期投資建議"""
+        if not stock_info.get('change'):
+            return "建議觀望，等待更明確的市場訊號"
+        change = stock_info['change']
+        if change > 5:
+            return "注意獲利了結，留意回檔風險"
+        elif change > 0:
+            return "可小量承接，設好停損"
+        elif change > -5:
+            return "可逢低佈局，分批進場"
+        else:
+            return "等待企穩後再進場"
+
+    def _get_mid_term_advice(self, stock_info: Dict[str, Any]) -> str:
+        """生成中期投資建議"""
+        return "關注產業發展和公司基本面，找適當進場點"
+
+    def _get_long_term_advice(self, stock_info: Dict[str, Any]) -> str:
+        """生成長期投資建議"""
+        return "觀察公司營運與產業前景，做好資金配置"
 
 
 # 建立全域分析器實例

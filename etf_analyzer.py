@@ -35,11 +35,13 @@ class ETFAnalyzer:
             '其他': []
         }
         self.last_request_time = {}
-        self.request_interval = 1  # 秒
+        self.request_interval = 5  # 增加到 5 秒
+        self.max_retries = 3
+        self.retry_delay = 5  # 重試等待時間
 
-    def _get_with_retry(self, etf_code: str, func: callable, max_retries: int = 3) -> Any:
+    def _get_with_retry(self, etf_code: str, func: callable) -> Any:
         """帶有重試機制的請求函數"""
-        for attempt in range(max_retries):
+        for attempt in range(self.max_retries):
             try:
                 # 檢查請求間隔
                 current_time = time.time()
@@ -47,22 +49,29 @@ class ETFAnalyzer:
                     time_since_last = current_time - \
                         self.last_request_time[etf_code]
                     if time_since_last < self.request_interval:
-                        time.sleep(self.request_interval - time_since_last)
+                        wait_time = self.request_interval - time_since_last
+                        logger.warning(f"請求過於頻繁，等待 {int(wait_time)} 秒後重試")
+                        time.sleep(wait_time)
 
                 result = func(etf_code)
+                if result is None:  # 如果結果為 None，視為失敗
+                    raise ValueError("API returned None")
+
                 self.last_request_time[etf_code] = time.time()
                 return result
 
             except Exception as e:
                 if "Too Many Requests" in str(e):
-                    wait_time = (attempt + 1) * 5  # 遞增等待時間
+                    wait_time = (attempt + 1) * self.retry_delay
                     logger.warning(f"請求過於頻繁，等待 {wait_time} 秒後重試")
                     time.sleep(wait_time)
                 else:
                     logger.error(f"獲取 ETF {etf_code} 資訊時發生錯誤: {str(e)}")
-                    if attempt == max_retries - 1:
-                        raise
-                    time.sleep(2)
+                    if attempt == self.max_retries - 1:  # 最后一次嘗試
+                        return {}  # 返回空字典而不是 None
+                    time.sleep(self.retry_delay)
+
+        return {}  # 所有重試都失敗後返回空字典
 
     def get_etf_info(self, etf_code: str) -> Dict:
         """
@@ -307,22 +316,50 @@ class ETFAnalyzer:
     def format_overlap_analysis(self, analysis: Dict[str, Any]) -> str:
         """格式化重疊分析結果"""
         if not analysis or 'overlap_stocks' not in analysis:
-            return "無法取得 ETF 重疊分析結果"
+            return """抱歉，我暫時無法完成 ETF 重疊分析 😅
 
-        result = "📊 ETF 重疊成分股分析\n\n"
-        for stock_code, info in analysis['overlap_stocks'].items():
-            etf_names = [self.etf_list[etf] for etf in info['etfs']]
-            result += f"股票代碼：{stock_code}\n"
-            result += f"出現於：{', '.join(etf_names)}\n"
-            result += f"總權重：{info['weight']:.2f}%\n"
-            result += "---\n"
+可能的原因：
+1. 資料暫時無法取得
+2. ETF 代碼可能有誤
+3. 系統處理中斷
 
-        result += "\n📝 分析說明：\n"
-        result += "1. 本分析包含以下 ETF：\n"
-        for code, name in self.etf_list.items():
-            result += f"   - {code}: {name}\n"
-        result += "2. 每月 14 日自動更新\n"
-        result += "3. 建議關注重疊度高且權重大的股票"
+建議您：
+✓ 確認 ETF 代碼是否正確
+✓ 稍後再試一次
+✓ 可以先查看單一 ETF 的資訊
+
+需要我為您查詢個別 ETF 的資訊嗎？😊"""
+
+        result = """🔍 ETF 重疊持股分析報告
+
+以下是您關注的 ETF 中重疊的持股：\n\n"""
+
+        # 按權重排序
+        sorted_stocks = sorted(
+            analysis['overlap_stocks'].items(),
+            key=lambda x: x[1]['weight'],
+            reverse=True
+        )
+
+        for stock_code, info in sorted_stocks:
+            etf_names = [self.etf_list.get(etf, etf) for etf in info['etfs']]
+            result += f"""📊 {stock_code}
+• 出現於：{', '.join(etf_names)}
+• 總權重：{info['weight']:.2f}%
+{'• 建議關注！' if info['weight'] > 10 else ''}
+───────────────\n"""
+
+        result += """\n💡 分析重點：
+1. 重疊度高的股票可能對多檔 ETF 都有重要影響
+2. 總權重越高，代表該股票在這些 ETF 中的影響力越大
+3. 建議關注權重超過 10% 的重疊股票
+
+⚠️ 注意事項：
+• ETF 成分股會定期調整
+• 投資時請考慮個人風險承受度
+• 建議適度分散投資降低風險
+
+更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
 
         return result
 
