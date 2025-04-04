@@ -209,6 +209,8 @@ async def callback(request: Request):
         import asyncio
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: handler.handle(body.decode(), signature))
+        # 等待所有待處理的協程完成
+        await asyncio.gather(*asyncio.all_tasks(loop))
     except InvalidSignatureError:
         return {"status": "error", "message": "Invalid signature"}
     except Exception as e:
