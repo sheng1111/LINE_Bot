@@ -68,19 +68,26 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 # LINE Bot 設定
-try:
-    channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-    channel_secret = os.getenv('LINE_CHANNEL_SECRET')
-    if not channel_access_token or not channel_secret:
-        raise ValueError("LINE Bot 憑證未設定")
-    handler = WebhookHandler(channel_secret)
-    configuration = Configuration(access_token=channel_access_token)
-    async_api_client = AsyncApiClient(configuration)
-    line_bot_api = AsyncMessagingApi(async_api_client)
-    logger.info("LINE Bot 初始化成功")
-except Exception as e:
-    logger.error(f"LINE Bot 初始化失敗: {str(e)}")
-    raise
+handler = None
+line_bot_api = None
+
+
+@app.on_event("startup")
+async def startup_event():
+    global handler, line_bot_api
+    try:
+        channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+        channel_secret = os.getenv('LINE_CHANNEL_SECRET')
+        if not channel_access_token or not channel_secret:
+            raise ValueError("LINE Bot 憑證未設定")
+        handler = WebhookHandler(channel_secret)
+        configuration = Configuration(access_token=channel_access_token)
+        async_api_client = AsyncApiClient(configuration)
+        line_bot_api = AsyncMessagingApi(async_api_client)
+        logger.info("LINE Bot 初始化成功")
+    except Exception as e:
+        logger.error(f"LINE Bot 初始化失敗: {str(e)}")
+        raise
 
 # 投資相關關鍵字
 investment_keywords = ['投資', '股票', '基金', 'ETF',
