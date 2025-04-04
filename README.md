@@ -232,3 +232,86 @@ uvicorn app:app --reload
 本機器人以免費資源搭建，提供個人與小群體的投資決策輔助工具，兼具易用性、實用性和擴充性。在使用過程中，請注意各項免費服務的限制，並適時進行優化與調整。
 
 歡迎使用 AI 協作工具（如 Cursor）繼續維護與優化此專案！
+
+# LINE Bot 應用程序
+
+這是一個基於 Python 的 LINE Bot 應用程序，使用 Flask 框架開發。
+
+## 功能特點
+
+- 接收並處理 LINE 消息
+- 支持文本消息回覆
+- 可擴展的消息處理機制
+
+## 本地開發
+
+1. 克隆倉庫
+
+```bash
+git clone [repository-url]
+cd line-bot
+```
+
+2. 安裝依賴
+
+```bash
+pip install -r requirements.txt
+```
+
+3. 設置環境變量
+
+```bash
+export LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token
+export LINE_CHANNEL_SECRET=your_channel_secret
+```
+
+4. 運行應用
+
+```bash
+python app.py
+```
+
+## 部署到 fly.io
+
+1. 安裝 flyctl
+
+```bash
+curl -L https://fly.io/install.sh | sh
+```
+
+2. 登錄 fly.io
+
+```bash
+flyctl auth login
+```
+
+3. 設置環境變量
+
+```bash
+flyctl secrets set LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token
+flyctl secrets set LINE_CHANNEL_SECRET=your_channel_secret
+```
+
+4. 部署應用
+
+```bash
+flyctl deploy
+```
+
+5. 查看應用狀態
+
+```bash
+flyctl status
+```
+
+## 環境變量
+
+- `LINE_CHANNEL_ACCESS_TOKEN`: LINE 頻道的訪問令牌
+- `LINE_CHANNEL_SECRET`: LINE 頻道的密鑰
+- `PORT`: 應用程序監聽的端口（默認：8080）
+
+## 注意事項
+
+- 確保在部署前設置所有必要的環境變量
+- 建議使用 HTTPS 進行安全通信
+- 定期更新依賴包以確保安全性
