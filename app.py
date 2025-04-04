@@ -55,7 +55,7 @@ def is_investment_related(text):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 啟動時執行
-    global handler, line_bot_api
+    global handler, line_bot_api, scheduler
     try:
         channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
         channel_secret = os.getenv('LINE_CHANNEL_SECRET')
@@ -72,11 +72,19 @@ async def lifespan(app: FastAPI):
         logger.info("LINE Bot 事件處理器註冊成功")
 
         # 初始化定時任務調度器
-        global scheduler
         try:
             scheduler = AsyncIOScheduler()
             scheduler.start()
             logger.info("定時任務調度器初始化成功")
+
+            # 設定每月 7 日和 14 日執行
+            scheduler.add_job(
+                send_etf_overlap_analysis,
+                CronTrigger(day='7,14', hour=9, minute=0),
+                id='etf_overlap_analysis',
+                replace_existing=True
+            )
+            logger.info("成功設定 ETF 重疊分析定時任務")
         except Exception as e:
             logger.error(f"定時任務調度器初始化失敗: {str(e)}")
             scheduler = None
@@ -401,20 +409,6 @@ async def send_etf_overlap_analysis(max_retries=3):
                             f"發送 ETF 重疊分析給使用者 {user['user_id']} 最終失敗: {str(e)}")
     except Exception as e:
         logger.error(f"執行 ETF 重疊分析時發生錯誤: {str(e)}", exc_info=True)
-
-
-# 設定每月 7 日和 14 日執行
-if scheduler:
-    try:
-        scheduler.add_job(
-            send_etf_overlap_analysis,
-            CronTrigger(day='7,14', hour=9, minute=0),
-            id='etf_overlap_analysis',
-            replace_existing=True
-        )
-        logger.info("成功設定 ETF 重疊分析定時任務")
-    except Exception as e:
-        logger.error(f"設定 ETF 重疊分析定時任務時發生錯誤: {str(e)}")
 
 
 async def process_message(user_id, message, reply_token, max_retries=3):
