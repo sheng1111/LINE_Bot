@@ -73,7 +73,11 @@ def process_message(user_id, message):
 
 @app.get("/")
 async def root():
-    return {"message": "AI 投資導向機器人服務已啟動"}
+    try:
+        return {"status": "success", "message": "AI 投資導向機器人服務已啟動"}
+    except Exception as e:
+        logger.error(f"根路由處理錯誤：{str(e)}")
+        return {"status": "error", "message": "服務暫時無法使用"}
 
 
 @app.post("/webhook")
