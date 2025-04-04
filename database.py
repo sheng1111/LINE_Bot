@@ -29,26 +29,51 @@ class Database:
         retries = 0
         while retries < self._max_retries:
             try:
-                # 連接 MongoDB，添加 SSL 相關配置
-                self.client = MongoClient(
-                    os.getenv('MONGODB_URI'),
-                    tls=True,
-                    tlsAllowInvalidCertificates=True,
-                    connectTimeoutMS=30000,
-                    socketTimeoutMS=30000,
-                    serverSelectionTimeoutMS=30000,
-                    retryWrites=True,
-                    retryReads=True,
-                    maxPoolSize=50,
-                    minPoolSize=10
-                )
+                # 取得憑證檔案路徑
+                ca_file = certifi.where()
+                logger.info(f"使用憑證檔案: {ca_file}")
 
-                # 測試連接
-                self.client.admin.command('ping')
+                # 嘗試多種連接方式
+                try:
+                    # 方法1: 使用憑證檔案
+                    self.client = MongoClient(
+                        os.getenv('MONGODB_URI'),
+                        tls=True,
+                        tlsCAFile=ca_file,
+                        tlsAllowInvalidCertificates=False,
+                        connectTimeoutMS=30000,
+                        socketTimeoutMS=30000,
+                        serverSelectionTimeoutMS=30000,
+                        retryWrites=True,
+                        retryReads=True,
+                        maxPoolSize=50,
+                        minPoolSize=10
+                    )
+                    # 測試連接
+                    self.client.admin.command('ping')
+                    logger.info("MongoDB 連接成功 (使用方法1: TLS+憑證)")
+                except Exception as e1:
+                    logger.warning(f"MongoDB 連接方法1失敗: {str(e1)}, 嘗試方法2...")
+
+                    # 方法2: 允許無效憑證
+                    self.client = MongoClient(
+                        os.getenv('MONGODB_URI'),
+                        tls=True,
+                        tlsAllowInvalidCertificates=True,
+                        connectTimeoutMS=30000,
+                        socketTimeoutMS=30000,
+                        serverSelectionTimeoutMS=30000,
+                        retryWrites=True,
+                        retryReads=True,
+                        maxPoolSize=50,
+                        minPoolSize=10
+                    )
+                    # 測試連接
+                    self.client.admin.command('ping')
+                    logger.info("MongoDB 連接成功 (使用方法2: 允許無效憑證)")
 
                 self.db = self.client[os.getenv('MONGODB_DB_NAME')]
                 self._create_indexes()
-                logger.info("MongoDB 連接成功")
                 return
 
             except ServerSelectionTimeoutError as e:
