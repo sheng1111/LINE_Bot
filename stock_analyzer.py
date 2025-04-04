@@ -7,8 +7,8 @@ import logging
 from datetime import datetime, timedelta
 from database import db
 import time
-import urllib3
-from urllib3.util import Retry
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +25,7 @@ class StockAnalyzer:
             'volume_analysis': self._analyze_volume
         }
         self.last_request_time = {}
-        self.request_interval = 5  # 增加到 5 秒
+        self.request_interval = 15  # 增加到 15 秒
         self.max_retries = 3
         self.retry_delay = 5  # 重試等待時間
 
@@ -37,8 +37,7 @@ class StockAnalyzer:
             status_forcelist=[429, 500, 502, 503, 504],  # 需要重試的狀態碼
             allowed_methods=["HEAD", "GET", "OPTIONS"]  # 允許重試的請求方法
         )
-        self.session.mount(
-            "https://", urllib3.HTTPAdapter(max_retries=retries))
+        self.session.mount("https://", HTTPAdapter(max_retries=retries))
 
         # 設定 yfinance 的請求 headers
         self.session.headers.update({
