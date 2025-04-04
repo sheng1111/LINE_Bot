@@ -61,6 +61,8 @@ async def lifespan(app: FastAPI):
         channel_secret = os.getenv('LINE_CHANNEL_SECRET')
         if not channel_access_token or not channel_secret:
             raise ValueError("LINE Bot 憑證未設定")
+
+        # 初始化 LINE Bot
         handler = WebhookHandler(channel_secret)
         configuration = Configuration(access_token=channel_access_token)
         async_api_client = AsyncApiClient(configuration)
@@ -142,57 +144,67 @@ async def health_check():
 def register_event_handlers():
     """註冊 LINE Bot 事件處理器"""
     @handler.add(MessageEvent, message=TextMessageContent)
-    async def handle_message(event):
+    def handle_message(event):
+        # 使用 asyncio 來執行異步函數
+        import asyncio
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(_handle_message_async(event))
+        else:
+            loop.run_until_complete(_handle_message_async(event))
+
+
+async def _handle_message_async(event):
+    try:
+        user_message = event.message.text
+        user_id = event.source.user_id
+
+        # 顯示 Loading Animation
+        await show_loading_animation(user_id)
+
+        # 處理幫助指令
+        if user_message == '/help':
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=get_help_message())]
+                )
+            )
+        # 處理股票查詢
+        elif user_message.startswith('查詢 '):
+            stock_code = user_message.split(' ')[1]
+            stock_info = get_stock_info(stock_code)
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(
+                        text=format_stock_info(stock_info))]
+                )
+            )
+        # 處理台指期查詢
+        elif user_message == '台指期':
+            futures_info = get_futures_info()
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(
+                        text=format_futures_info(futures_info))]
+                )
+            )
+        # 處理其他訊息
+        else:
+            await process_message(user_id, user_message, event.reply_token)
+    except Exception as e:
+        logger.error(f"處理訊息時發生錯誤：{str(e)}", exc_info=True)
         try:
-            user_message = event.message.text
-            user_id = event.source.user_id
-
-            # 顯示 Loading Animation
-            await show_loading_animation(user_id)
-
-            # 處理幫助指令
-            if user_message == '/help':
-                await line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text=get_help_message())]
-                    )
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="抱歉，處理您的請求時發生錯誤，請稍後再試。")]
                 )
-            # 處理股票查詢
-            elif user_message.startswith('查詢 '):
-                stock_code = user_message.split(' ')[1]
-                stock_info = get_stock_info(stock_code)
-                await line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(
-                            text=format_stock_info(stock_info))]
-                    )
-                )
-            # 處理台指期查詢
-            elif user_message == '台指期':
-                futures_info = get_futures_info()
-                await line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(
-                            text=format_futures_info(futures_info))]
-                    )
-                )
-            # 處理其他訊息
-            else:
-                await process_message(user_id, user_message, event.reply_token)
-        except Exception as e:
-            logger.error(f"處理訊息時發生錯誤：{str(e)}", exc_info=True)
-            try:
-                await line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text="抱歉，處理您的請求時發生錯誤，請稍後再試。")]
-                    )
-                )
-            except Exception as reply_error:
-                logger.error(f"發送錯誤訊息時發生錯誤：{str(reply_error)}")
+            )
+        except Exception as reply_error:
+            logger.error(f"發送錯誤訊息時發生錯誤：{str(reply_error)}")
 
 
 @app.post("/callback")
@@ -205,19 +217,14 @@ async def callback(request: Request):
     body = await request.body()
 
     try:
-        # 使用 asyncio 來執行 handler.handle
-        import asyncio
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: handler.handle(body.decode(), signature))
-        # 等待所有待處理的協程完成
-        await asyncio.gather(*asyncio.all_tasks(loop))
+        # 直接使用 handler.handle
+        handler.handle(body.decode(), signature)
+        return {"status": "success"}
     except InvalidSignatureError:
         return {"status": "error", "message": "Invalid signature"}
     except Exception as e:
         logger.error(f"處理 callback 時發生錯誤：{str(e)}", exc_info=True)
         return {"status": "error", "message": str(e)}
-
-    return {"status": "success"}
 
 
 def get_help_message() -> str:
