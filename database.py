@@ -55,22 +55,53 @@ class Database:
                 except Exception as e1:
                     logger.warning(f"MongoDB 連接方法1失敗: {str(e1)}, 嘗試方法2...")
 
-                    # 方法2: 允許無效憑證
-                    self.client = MongoClient(
-                        os.getenv('MONGODB_URI'),
-                        tls=True,
-                        tlsAllowInvalidCertificates=True,
-                        connectTimeoutMS=30000,
-                        socketTimeoutMS=30000,
-                        serverSelectionTimeoutMS=30000,
-                        retryWrites=True,
-                        retryReads=True,
-                        maxPoolSize=50,
-                        minPoolSize=10
-                    )
-                    # 測試連接
-                    self.client.admin.command('ping')
-                    logger.info("MongoDB 連接成功 (使用方法2: 允許無效憑證)")
+                    try:
+                        # 方法2: 允許無效憑證
+                        self.client = MongoClient(
+                            os.getenv('MONGODB_URI'),
+                            tls=True,
+                            tlsAllowInvalidCertificates=True,
+                            connectTimeoutMS=30000,
+                            socketTimeoutMS=30000,
+                            serverSelectionTimeoutMS=30000,
+                            retryWrites=True,
+                            retryReads=True,
+                            maxPoolSize=50,
+                            minPoolSize=10
+                        )
+                        # 測試連接
+                        self.client.admin.command('ping')
+                        logger.info("MongoDB 連接成功 (使用方法2: 允許無效憑證)")
+                    except Exception as e2:
+                        logger.warning(f"MongoDB 連接方法2失敗: {str(e2)}, 嘗試方法3...")
+
+                        # 方法3: 嘗試不使用TLS（僅適用於某些環境）
+                        # 提取基本連接字符串（移除TLS參數）
+                        conn_str = os.getenv('MONGODB_URI')
+                        if "tls=true" in conn_str:
+                            conn_str = conn_str.replace("tls=true", "")
+
+                        self.client = MongoClient(
+                            conn_str,
+                            connectTimeoutMS=30000,
+                            socketTimeoutMS=30000,
+                            serverSelectionTimeoutMS=30000,
+                            retryWrites=True,
+                            retryReads=True,
+                            maxPoolSize=50,
+                            minPoolSize=10
+                        )
+                        # 測試連接
+                        self.client.admin.command('ping')
+                        logger.info("MongoDB 連接成功 (使用方法3: 不使用TLS)")
+                    except Exception as e3:
+                        logger.warning(f"MongoDB 連接方法3失敗: {str(e3)}, 嘗試方法4...")
+
+                        # 方法4: 直接使用連接字符串，不添加任何參數
+                        self.client = MongoClient(os.getenv('MONGODB_URI'))
+                        # 測試連接
+                        self.client.admin.command('ping')
+                        logger.info("MongoDB 連接成功 (使用方法4: 最簡配置)")
 
                 self.db = self.client[os.getenv('MONGODB_DB_NAME')]
                 self._create_indexes()
