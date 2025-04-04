@@ -41,9 +41,7 @@ class Database:
                     retryWrites=True,
                     retryReads=True,
                     maxPoolSize=50,
-                    minPoolSize=10,
-                    ssl=True,
-                    ssl_cert_reqs=False
+                    minPoolSize=10
                 )
 
                 # 測試連接
