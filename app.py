@@ -7,7 +7,8 @@ from linebot.v3.messaging import (
     AsyncApiClient,
     AsyncMessagingApi,
     ReplyMessageRequest,
-    TextMessage
+    TextMessage,
+    ShowLoadingAnimationRequest
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 import os
@@ -171,23 +172,15 @@ def get_help_message() -> str:
 """
 
 
-async def show_loading_animation(user_id: str, seconds: int = 5):
+async def show_loading_animation(user_id: str, seconds: int = 60):
     """顯示加載動畫"""
     try:
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {channel_access_token}'
-        }
-        data = {
-            'chatId': user_id,
-            'loadingSeconds': seconds
-        }
-        response = requests.post(
-            'https://api.line.me/v2/bot/chat/loading/start',
-            headers=headers,
-            json=data
+        await line_bot_api.show_loading_animation(
+            ShowLoadingAnimationRequest(
+                chatId=user_id,
+                loadingSeconds=seconds
+            )
         )
-        response.raise_for_status()
     except Exception as e:
         logger.error(f"顯示加載動畫時發生錯誤：{str(e)}")
 
