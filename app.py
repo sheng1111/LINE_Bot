@@ -167,4 +167,7 @@ def handle_daily_recommendation() -> str:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 獲取環境變數中的PORT，如果不存在則使用8000
+    port = int(os.environ.get("PORT", 8000))
+    logger.info(f"啟動服務 - 主機: 0.0.0.0, 端口: {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
