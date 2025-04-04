@@ -38,7 +38,15 @@ class StockAnalyzer:
             allowed_methods=["HEAD", "GET", "OPTIONS"]  # 允許重試的請求方法
         )
         self.session.mount("https://", HTTPAdapter(max_retries=retries))
-        yf.base.base._BASE_URL_ = "https://query2.finance.yahoo.com"  # 使用備用 API 端點
+
+        # 設定 yfinance 的請求 headers
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+
+        # 設定 yfinance 的全局 session
+        yf.set_tz_cache_location(None)  # 禁用時區快取
+        yf.pdr_override()  # 使用 pandas_datareader 的數據源
 
     def _get_with_retry(self, stock_code: str, func: callable) -> Any:
         """帶有重試機制的請求函數"""
