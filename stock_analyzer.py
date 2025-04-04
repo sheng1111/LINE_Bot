@@ -41,12 +41,14 @@ class StockAnalyzer:
 
         # 設定 yfinance 的請求 headers
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
         })
 
-        # 設定 yfinance 的全局 session
+        # 設定 yfinance 的快取
         yf.set_tz_cache_location(None)  # 禁用時區快取
-        yf.pdr_override()  # 使用 pandas_datareader 的數據源
 
     def _get_with_retry(self, stock_code: str, func: callable) -> Any:
         """帶有重試機制的請求函數"""
@@ -63,7 +65,7 @@ class StockAnalyzer:
                         time.sleep(wait_time)
 
                 # 使用自定義的 session
-                ticker = yf.Ticker(stock_code)
+                ticker = yf.Ticker(f"{stock_code}.TW")  # 添加 .TW 後綴
                 ticker._session = self.session  # 使用自定義的 session
 
                 result = func(ticker)
