@@ -33,14 +33,17 @@ class Database:
                 self.client = MongoClient(
                     os.getenv('MONGODB_URI'),
                     tls=True,
-                    tlsAllowInvalidCertificates=True,
+                    tlsCAFile=certifi.where(),
+                    tlsAllowInvalidCertificates=False,
                     connectTimeoutMS=30000,
                     socketTimeoutMS=30000,
                     serverSelectionTimeoutMS=30000,
                     retryWrites=True,
                     retryReads=True,
                     maxPoolSize=50,
-                    minPoolSize=10
+                    minPoolSize=10,
+                    ssl=True,
+                    ssl_cert_reqs=False
                 )
 
                 # 測試連接
