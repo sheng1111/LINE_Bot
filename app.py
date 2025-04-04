@@ -90,10 +90,12 @@ async def webhook(request: Request):
 
     try:
         handler.handle(body.decode(), signature)
+        return {"message": "OK"}
     except InvalidSignatureError:
-        return {"message": "Invalid signature"}
-
-    return {"message": "OK"}
+        return {"message": "Invalid signature"}, 400
+    except Exception as e:
+        logger.error(f"Webhook 處理錯誤：{str(e)}")
+        return {"message": "Internal server error"}, 500
 
 
 @handler.add(MessageEvent, message=TextMessage)
