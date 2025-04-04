@@ -5,8 +5,6 @@ import logging
 import certifi
 from pymongo.errors import ServerSelectionTimeoutError
 import time
-from ssl import CERT_NONE, PROTOCOL_TLS
-import ssl as ssl_lib
 
 # 載入環境變數
 load_dotenv()
@@ -31,17 +29,11 @@ class Database:
         retries = 0
         while retries < self._max_retries:
             try:
-                # 創建自定義SSL上下文
-                ssl_context = ssl_lib.SSLContext(PROTOCOL_TLS)
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = CERT_NONE
-
-                # 使用最簡配置連接MongoDB
+                # 使用更簡單的配置連接MongoDB
                 self.client = MongoClient(
                     os.getenv('MONGODB_URI'),
-                    ssl_cert_reqs=CERT_NONE,
-                    ssl=True,
-                    ssl_context=ssl_context,
+                    tls=True,
+                    tlsCAFile=certifi.where(),
                     serverSelectionTimeoutMS=30000
                 )
 
