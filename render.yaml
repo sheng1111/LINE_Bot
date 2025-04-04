@@ -13,3 +13,15 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        sync: false
+      - key: GEMINI_MODEL_NAME
+        value: gemini-2.0-flash
+      - key: GEMINI_TEMPERATURE
+        value: 0.9
+      - key: GEMINI_TOP_P
+        value: 0.8
+      - key: GEMINI_TOP_K
+        value: 40
