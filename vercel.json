@@ -8,11 +8,17 @@
   ],
   "routes": [
     {
+      "src": "/webhook",
+      "dest": "app.py",
+      "methods": ["POST"]
+    },
+    {
       "src": "/(.*)",
       "dest": "app.py"
     }
   ],
   "env": {
-    "PYTHONPATH": "."
+    "PYTHONPATH": ".",
+    "MAX_EXECUTION_TIME": "10"
   }
 }

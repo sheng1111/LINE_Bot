@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -82,20 +83,28 @@ async def root():
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    # 取得 X-Line-Signature header 的值
+    # 快速回應 LINE 平台，避免超時
     signature = request.headers.get('X-Line-Signature', '')
-
-    # 取得 request body 作為文字
     body = await request.body()
 
     try:
+        # 驗證簽名
         handler.handle(body.decode(), signature)
-        return {"message": "OK"}
+
+        # 立即返回 200 OK
+        return Response(content='OK', status_code=200)
+
     except InvalidSignatureError:
-        return {"message": "Invalid signature"}, 400
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"message": "Invalid signature"}
+        )
     except Exception as e:
         logger.error(f"Webhook 處理錯誤：{str(e)}")
-        return {"message": "Internal server error"}, 500
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"message": "Internal server error"}
+        )
 
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -105,95 +114,29 @@ def handle_message(event):
         user_id = event.source.user_id
         user_message = event.message.text
 
-        # 記錄使用者查詢
-        log_query(user_id, user_message)
-
-        # 處理不同類型的訊息
-        if user_message.startswith('查詢 '):
+        # 使用非同步處理來處理訊息
+        def process_message_async():
             try:
-                stock_code = user_message.split(' ')[1]
-                response = analyzer.analyze_stock(stock_code)
+                # 發送輸入中動畫
+                send_typing_animation(user_id)
+
+                # 生成回應
+                response = gemini.generate_response(user_message, user_id)
+
+                # 發送回應
+                line_bot_api.push_message(
+                    user_id,
+                    TextSendMessage(text=response)
+                )
             except Exception as e:
-                logger.error(f"查詢股票時發生錯誤：{str(e)}")
-                response = "抱歉，查詢股票時發生錯誤，請確認股票代碼是否正確。"
-        elif user_message == 'ETF排行':
-            try:
-                response = etf_analyzer.get_etf_ranking()
-            except Exception as e:
-                logger.error(f"查詢 ETF 排行時發生錯誤：{str(e)}")
-                response = "抱歉，查詢 ETF 排行時發生錯誤，請稍後再試。"
-        elif user_message == '每日建議':
-            try:
-                response = recommender.generate_daily_recommendation(user_id)
-            except Exception as e:
-                logger.error(f"生成每日建議時發生錯誤: {str(e)}")
-                response = "抱歉，生成每日建議時發生錯誤，請稍後再試。"
-        elif user_message.startswith('股息 '):
-            try:
-                stock_code = user_message.split(' ')[1]
-                dividend_info = dividend_analyzer.get_dividend_info(stock_code)
-                if dividend_info:
-                    yield_rate = dividend_analyzer.calculate_dividend_yield(
-                        stock_code)
-                    history = dividend_analyzer.get_dividend_history(
-                        stock_code)
+                logger.error(f"處理訊息時發生錯誤：{str(e)}")
+                line_bot_api.push_message(
+                    user_id,
+                    TextSendMessage(text="抱歉，處理您的請求時發生錯誤，請稍後再試。")
+                )
 
-                    response = f"""
-📊 {stock_code} 股息資訊：
-- 當前價格：{dividend_info['current_price']}
-- 年度股息：{dividend_info['annual_dividend']}
-- 股息殖利率：{yield_rate:.2f}%
-
-📅 最近股息發放記錄：
-"""
-                    for record in history[:3]:  # 顯示最近 3 筆記錄
-                        response += f"- {record['date']}: {record['amount']} ({record['type']})\n"
-                else:
-                    response = "抱歉，無法獲取該股票的股息資訊，請確認股票代碼是否正確。"
-            except Exception as e:
-                logger.error(f"查詢股息時發生錯誤：{str(e)}")
-                response = "抱歉，查詢股息時發生錯誤，請稍後再試。"
-        elif user_message.startswith('比較 '):
-            try:
-                stock_code = user_message.split(' ')[1]
-                comparison = comparator.compare_stocks(stock_code)
-
-                if 'error' in comparison:
-                    response = comparison['error']
-                else:
-                    target = comparison['target_stock']
-                    peers = comparison['peers']
-
-                    response = f"""
-📊 {target['name']} ({target['stock_code']}) 同業比較：
-- 當前價格：{target['price']}
-- 股息殖利率：{target['dividend_yield']:.2f}%
-- 本益比：{target['pe_ratio']}
-- 股價淨值比：{target['pb_ratio']}
-- 殖利率排名：{target['rank']}/{comparison['total_companies']}
-
-📈 同業比較（按殖利率排序）：
-"""
-                    for peer in peers:
-                        response += f"""
-{peer['name']} ({peer['stock_code']})
-- 價格：{peer['price']}
-- 殖利率：{peer['dividend_yield']:.2f}%
-- 本益比：{peer['pe_ratio']}
-- 股價淨值比：{peer['pb_ratio']}
-"""
-            except Exception as e:
-                logger.error(f"比較股票時發生錯誤：{str(e)}")
-                response = "抱歉，比較股票時發生錯誤，請稍後再試。"
-        else:
-            # 使用 Gemini 處理一般對話
-            response = gemini.generate_response(user_message, user_id)
-
-        # 回覆訊息
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=response)
-        )
+        # 在背景執行訊息處理
+        threading.Thread(target=process_message_async).start()
 
     except Exception as e:
         logger.error(f"處理訊息時發生錯誤：{str(e)}")
