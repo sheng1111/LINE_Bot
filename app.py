@@ -9,7 +9,7 @@ import logging
 from database import db
 from gemini_client import gemini
 from stock_analyzer import analyzer
-from etf_analyzer import etf_analyzer
+from etf_analyzer import analyzer as etf_analyzer
 from datetime import datetime
 from daily_recommender import DailyRecommender
 from dividend_analyzer import analyzer as dividend_analyzer
