@@ -165,6 +165,22 @@ uvicorn app:app --reload
 2. 設定 Webhook URL 為 Vercel 部署的 URL + /webhook
 3. 啟用 Webhook
 
+### 4. 部署到 Render
+
+1. 在 [Render](https://render.com) 註冊帳號
+2. 點擊 "New +" 按鈕，選擇 "Web Service"
+3. 連接您的 GitHub 倉庫
+4. 配置以下設置：
+   - Name: 您的服務名稱
+   - Environment: Python
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
+5. 在 Environment Variables 部分添加以下環境變數：
+   - `LINE_CHANNEL_ACCESS_TOKEN`
+   - `LINE_CHANNEL_SECRET`
+   - `GEMINI_API_KEY`
+6. 點擊 "Create Web Service" 開始部署
+
 ## 📝 六、使用限制與注意事項
 
 1. **資料庫使用限制**
