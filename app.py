@@ -29,6 +29,7 @@ from stock_info import get_stock_info, format_stock_info
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from futures_info import get_futures_info, format_futures_info
+import requests
 
 # 載入環境變數
 load_dotenv()
@@ -136,7 +137,7 @@ def get_help_message() -> str:
 輸入：`查詢 2330`
 功能：查詢股票即時資訊，包括價格、成交量、本益比等
 
-📈 台指期查詢
+�� 台指期查詢
 輸入：`台指期`
 功能：查詢台指期即時資訊，包括價格、漲跌幅、成交量等
 
@@ -171,17 +172,33 @@ def get_help_message() -> str:
 """
 
 
+async def show_loading_animation(user_id: str, seconds: int = 5):
+    """顯示加載動畫"""
+    try:
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {channel_access_token}'
+        }
+        data = {
+            'chatId': user_id,
+            'loadingSeconds': seconds
+        }
+        response = requests.post(
+            'https://api.line.me/v2/bot/chat/loading/start',
+            headers=headers,
+            json=data
+        )
+        response.raise_for_status()
+    except Exception as e:
+        logger.error(f"顯示加載動畫時發生錯誤：{str(e)}")
+
+
 @handler.add(MessageEvent, message=TextMessageContent)
 async def handle_message(event):
     user_message = event.message.text
 
     # 顯示 Loading Animation
-    await line_bot_api.show_loading_animation(
-        ShowLoadingAnimationRequest(
-            chatId=event.source.user_id,
-            loadingSeconds=5
-        )
-    )
+    await show_loading_animation(event.source.user_id)
 
     # 處理幫助指令
     if user_message == '/help':
