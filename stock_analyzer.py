@@ -7,8 +7,8 @@ import logging
 from datetime import datetime, timedelta
 from database import db
 import time
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+import urllib3
+from urllib3.util import Retry
 
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +37,8 @@ class StockAnalyzer:
             status_forcelist=[429, 500, 502, 503, 504],  # 需要重試的狀態碼
             allowed_methods=["HEAD", "GET", "OPTIONS"]  # 允許重試的請求方法
         )
-        self.session.mount("https://", HTTPAdapter(max_retries=retries))
+        self.session.mount(
+            "https://", urllib3.HTTPAdapter(max_retries=retries))
 
         # 設定 yfinance 的請求 headers
         self.session.headers.update({
@@ -308,7 +309,7 @@ class StockAnalyzer:
         try:
             stock_info = self.get_stock_info(stock_code)
             if not stock_info:
-                return f"""抱歉，我暫時無法獲取 {stock_code} 的股票資訊 😅
+                return f"""抱歉，我暫時無法獲取 {stock_code} 的股票資訊
 
 可能的原因：
 1. 網路連線不穩定
@@ -316,32 +317,32 @@ class StockAnalyzer:
 3. 資料來源暫時無回應
 
 建議您：
-✓ 確認股票代碼是否正確
-✓ 稍後再試一次
-✓ 如果問題持續發生，可以先查看其他股票資訊
+- 確認股票代碼是否正確
+- 稍後再試一次
+- 如果問題持續發生，可以先查看其他股票資訊
 
-需要我為您查詢其他股票嗎？😊"""
+需要我為您查詢其他股票嗎？"""
 
             # 生成分析報告
             report = f"""
-📊 {stock_info['name']} ({stock_code}) 股票分析報告
+{stock_info['name']} ({stock_code}) 股票分析報告
 
-💰 基本資訊
+基本資訊
 • 當前價格：${stock_info['current_price']}
 • 漲跌幅：{stock_info['change']}%
 • 成交量：{stock_info['volume']:,}
 
-📈 技術分析
+技術分析
 • 短期趨勢：{self._get_trend_description(stock_info)}
 • 支撐位：${stock_info.get('support', '暫無數據')}
 • 壓力位：${stock_info.get('resistance', '暫無數據')}
 
-💡 投資建議
+投資建議
 • 短期：{self._get_short_term_advice(stock_info)}
 • 中期：{self._get_mid_term_advice(stock_info)}
 • 長期：{self._get_long_term_advice(stock_info)}
 
-⚠️ 風險提醒：
+風險提醒：
 投資有賺有賠，請審慎評估風險，並建議分散投資降低風險。
 
 更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -351,14 +352,14 @@ class StockAnalyzer:
 
         except Exception as e:
             logger.error(f"分析股票時發生錯誤：{str(e)}")
-            return """非常抱歉，在分析過程中遇到了一些技術問題 😅
+            return """非常抱歉，在分析過程中遇到了一些技術問題
 
 讓我們試試看：
 1. 重新查詢一次
 2. 換個時間再試
 3. 查看其他股票資訊
 
-您想要怎麼做呢？我很樂意協助您！ 😊"""
+您想要怎麼做呢？我很樂意協助您！"""
 
     def _get_trend_description(self, stock_info: Dict[str, Any]) -> str:
         """根據股票資訊生成趨勢描述"""
@@ -366,13 +367,13 @@ class StockAnalyzer:
             return "持平"
         change = stock_info['change']
         if change > 3:
-            return "強勢上漲 📈"
+            return "強勢上漲"
         elif change > 0:
-            return "緩步上揚 ↗"
+            return "緩步上揚"
         elif change > -3:
-            return "輕微下跌 ↘"
+            return "輕微下跌"
         else:
-            return "明顯下跌 📉"
+            return "明顯下跌"
 
     def _get_short_term_advice(self, stock_info: Dict[str, Any]) -> str:
         """生成短期投資建議"""

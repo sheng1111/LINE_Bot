@@ -501,7 +501,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                         stock_codes.append(word)
 
                 if stock_codes:
-                    # 如果有股票代碼，先獲取即時資訊
+                    # 如果有股票代码，先獲取即時資訊
                     stock_infos = []
                     for code in stock_codes:
                         for attempt in range(max_retries):
@@ -510,13 +510,18 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                                 if info:
                                     stock_infos.append(format_stock_info(info))
                                     break
+                                else:
+                                    if attempt == max_retries - 1:
+                                        stock_infos.append(
+                                            f"無法獲取股票 {code} 的即時資訊，請確認股票代碼是否正確。")
                             except Exception as e:
                                 logger.warning(
                                     f"獲取股票 {code} 資訊失敗 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
                                 if attempt == max_retries - 1:
                                     logger.error(
                                         f"獲取股票 {code} 資訊最終失敗: {str(e)}")
-                                    stock_infos.append(f"無法獲取股票 {code} 的即時資訊")
+                                    stock_infos.append(
+                                        f"無法獲取股票 {code} 的即時資訊，系統可能暫時無回應，請稍後再試。")
 
                     # 將即時資訊加入 prompt
                     real_time_info = "\n\n".join(stock_infos)
