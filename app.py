@@ -7,8 +7,7 @@ from linebot.v3.messaging import (
     AsyncApiClient,
     AsyncMessagingApi,
     ReplyMessageRequest,
-    TextMessage,
-    ShowLoadingAnimationRequest
+    TextMessage
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 import os
@@ -137,7 +136,7 @@ def get_help_message() -> str:
 輸入：`查詢 2330`
 功能：查詢股票即時資訊，包括價格、成交量、本益比等
 
-�� 台指期查詢
+📊 台指期查詢
 輸入：`台指期`
 功能：查詢台指期即時資訊，包括價格、漲跌幅、成交量等
 
