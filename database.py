@@ -2,6 +2,7 @@ from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
 import logging
+import certifi
 
 # 載入環境變數
 load_dotenv()
@@ -22,8 +23,15 @@ class Database:
 
     def _initialize(self):
         try:
-            # 連接 MongoDB
-            self.client = MongoClient(os.getenv('MONGODB_URI'))
+            # 連接 MongoDB，添加 SSL 相關配置
+            self.client = MongoClient(
+                os.getenv('MONGODB_URI'),
+                tls=True,
+                tlsCAFile=certifi.where(),
+                tlsAllowInvalidCertificates=False,
+                connectTimeoutMS=30000,
+                socketTimeoutMS=30000
+            )
             self.db = self.client[os.getenv('MONGODB_DB_NAME')]
 
             # 建立索引

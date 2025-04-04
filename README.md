@@ -147,7 +147,11 @@ pip install -r requirements.txt
 uvicorn app:app --reload
 ```
 
-### 2. Vercel 部署步驟
+### 2. 選擇部署平台
+
+您可以選擇以下任一平台進行部署：
+
+#### 選項一：Vercel 部署
 
 1. 將專案推送到 GitHub
 2. 在 Vercel 中導入 GitHub 專案
@@ -159,13 +163,7 @@ uvicorn app:app --reload
    - GEMINI_API_KEY
 4. 部署專案
 
-### 3. LINE Bot 設定
-
-1. 在 [LINE Developers](https://developers.line.biz/) 建立新的 Channel
-2. 設定 Webhook URL 為 Vercel 部署的 URL + /webhook
-3. 啟用 Webhook
-
-### 4. 部署到 Render
+#### 選項二：Render 部署
 
 1. 在 [Render](https://render.com) 註冊帳號
 2. 點擊 "New +" 按鈕，選擇 "Web Service"
@@ -180,6 +178,12 @@ uvicorn app:app --reload
    - `LINE_CHANNEL_SECRET`
    - `GEMINI_API_KEY`
 6. 點擊 "Create Web Service" 開始部署
+
+### 3. LINE Bot 設定
+
+1. 在 [LINE Developers](https://developers.line.biz/) 建立新的 Channel
+2. 設定 Webhook URL 為您選擇的部署平台（Vercel 或 Render）的 URL + /webhook
+3. 啟用 Webhook
 
 ## 📝 六、使用限制與注意事項
 
