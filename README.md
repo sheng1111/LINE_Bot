@@ -151,7 +151,23 @@ uvicorn app:app --reload
 
 您可以選擇以下任一平台進行部署：
 
-#### 選項一：Vercel 部署
+#### 選項一：Railway 部署（推薦）
+
+1. 在 [Railway](https://railway.app) 註冊帳號
+2. 點擊 "New Project"，選擇 "Deploy from GitHub repo"
+3. 選擇您的 GitHub 倉庫
+4. 在部署設置中：
+   - 選擇 Python 環境
+   - 設置啟動命令：`uvicorn app:app --host 0.0.0.0 --port $PORT`
+5. 在 Variables 部分添加以下環境變數：
+   - `LINE_CHANNEL_ACCESS_TOKEN`
+   - `LINE_CHANNEL_SECRET`
+   - `MONGODB_URI`
+   - `MONGODB_DB_NAME`
+   - `GEMINI_API_KEY`
+6. 點擊 "Deploy" 開始部署
+
+#### 選項二：Vercel 部署
 
 1. 將專案推送到 GitHub
 2. 在 Vercel 中導入 GitHub 專案
@@ -163,7 +179,7 @@ uvicorn app:app --reload
    - GEMINI_API_KEY
 4. 部署專案
 
-#### 選項二：Render 部署
+#### 選項三：Render 部署
 
 1. 在 [Render](https://render.com) 註冊帳號
 2. 點擊 "New +" 按鈕，選擇 "Web Service"
@@ -182,7 +198,7 @@ uvicorn app:app --reload
 ### 3. LINE Bot 設定
 
 1. 在 [LINE Developers](https://developers.line.biz/) 建立新的 Channel
-2. 設定 Webhook URL 為您選擇的部署平台（Vercel 或 Render）的 URL + /webhook
+2. 設定 Webhook URL 為您選擇的部署平台（Railway/Vercel/Render）的 URL + /webhook
 3. 啟用 Webhook
 
 ## 📝 六、使用限制與注意事項
