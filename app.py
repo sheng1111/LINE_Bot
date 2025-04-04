@@ -295,6 +295,75 @@ def handle_daily_recommendation() -> str:
     return "正在生成今日投資建議..."
 
 
+def analyze_etf_overlap():
+    """
+    分析 ETF 重疊成分股
+    :return: 包含重疊分析結果的字典
+    """
+    try:
+        # 從資料庫獲取所有 ETF 的成分股資料
+        collection = db.get_collection('etf_holdings')
+        etfs = collection.find({})
+
+        # 建立 ETF 代碼到成分股的映射
+        etf_holdings = {}
+        for etf in etfs:
+            etf_holdings[etf['etf_code']] = set(etf['holdings'])
+
+        # 分析重疊情況
+        overlap_analysis = {}
+        etf_codes = list(etf_holdings.keys())
+
+        for i in range(len(etf_codes)):
+            for j in range(i + 1, len(etf_codes)):
+                etf1 = etf_codes[i]
+                etf2 = etf_codes[j]
+
+                # 計算交集
+                common_stocks = etf_holdings[etf1] & etf_holdings[etf2]
+
+                if common_stocks:
+                    overlap_analysis[f"{etf1}-{etf2}"] = {
+                        "etf1": etf1,
+                        "etf2": etf2,
+                        "common_stocks": list(common_stocks),
+                        "overlap_ratio": len(common_stocks) / min(len(etf_holdings[etf1]), len(etf_holdings[etf2]))
+                    }
+
+        return overlap_analysis
+    except Exception as e:
+        logger.error(f"分析 ETF 重疊時發生錯誤: {str(e)}")
+        return None
+
+
+def format_overlap_analysis(analysis):
+    """
+    格式化 ETF 重疊分析結果
+    :param analysis: 重疊分析結果字典
+    :return: 格式化後的字串訊息
+    """
+    if not analysis:
+        return "目前沒有足夠的 ETF 資料進行重疊分析。"
+
+    message = "📊 ETF 重疊成分股分析報告\n\n"
+
+    for key, data in analysis.items():
+        if data['overlap_ratio'] > 0.3:  # 只顯示重疊率大於 30% 的組合
+            message += f"🔍 {data['etf1']} 與 {data['etf2']} 重疊分析：\n"
+            message += f"重疊率：{data['overlap_ratio']:.2%}\n"
+            message += f"共同成分股：\n"
+            for stock in data['common_stocks'][:5]:  # 只顯示前 5 檔
+                message += f"- {stock}\n"
+            if len(data['common_stocks']) > 5:
+                message += f"... 等共 {len(data['common_stocks'])} 檔\n"
+            message += "\n"
+
+    if len(message) == len("📊 ETF 重疊成分股分析報告\n\n"):
+        message += "目前沒有發現顯著的重疊情況。"
+
+    return message
+
+
 async def send_etf_overlap_analysis():
     """
     發送 ETF 重疊分析結果給所有使用者
