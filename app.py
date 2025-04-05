@@ -499,23 +499,34 @@ async def process_message(user_id, message, reply_token, max_retries=3):
 
         支援的指令類型：
         1. STOCK_QUERY - 查詢股票資訊（參數：股票代碼）
-        2. MARKET_NEWS - 查看市場新聞（無參數）
-        3. MARKET_RANKING - 查看市場排行（無參數）
-        4. TECHNICAL_ANALYSIS - 技術分析（參數：股票代碼）
-        5. CHIP_ANALYSIS - 籌碼分析（參數：股票代碼）
-        6. HISTORY_QUERY - 歷史資料查詢（參數：股票代碼）
-        7. PORTFOLIO - 投資組合（無參數）
-        8. PRICE_ALERT - 設定提醒（參數：股票代碼 價格）
-        9. GENERAL_QUERY - 一般問答（無參數）
+        2. STOCK_ANALYSIS - 股票分析（參數：股票代碼）
+        3. MARKET_NEWS - 查看市場新聞（無參數）
+        4. MARKET_RANKING - 查看市場排行（無參數）
+        5. TECHNICAL_ANALYSIS - 技術分析（參數：股票代碼）
+        6. CHIP_ANALYSIS - 籌碼分析（參數：股票代碼）
+        7. HISTORY_QUERY - 歷史資料查詢（參數：股票代碼）
+        8. PORTFOLIO - 投資組合（無參數）
+        9. PRICE_ALERT - 設定提醒（參數：股票代碼 價格）
+        10. GENERAL_QUERY - 一般問答（無參數）
+
+        請根據以下規則判斷：
+        - 如果只是查詢股票現況，使用 STOCK_QUERY
+        - 如果要求分析股票，使用 STOCK_ANALYSIS
+        - 如果無法確定，使用 GENERAL_QUERY
 
         請只返回如下格式：
         COMMAND:對應指令
         PARAMS:參數（如果有多個參數用空格分隔）
 
         例如：
-        輸入："台積電現在怎麼樣？"
+        輸入："台積電現在多少錢？"
         返回：
         COMMAND:STOCK_QUERY
+        PARAMS:2330
+
+        輸入："分析台積電"
+        返回：
+        COMMAND:STOCK_ANALYSIS
         PARAMS:2330
 
         輸入："最近有什麼重要新聞嗎？"
@@ -543,7 +554,15 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                 # 處理股票查詢
                 stock_info = get_stock_info(params)
                 if stock_info:
-                    # 使用第二個 LLM 分析股票資料
+                    response = format_stock_info(stock_info)
+                else:
+                    response = "抱歉，無法獲取該股票資訊。"
+
+            elif command == 'STOCK_ANALYSIS' and params:
+                # 處理股票分析
+                stock_info = get_stock_info(params)
+                if stock_info:
+                    # 使用 LLM 分析股票資料
                     analysis_prompt = f"""
                     請分析以下股票資料並給出專業的見解：
                     {format_stock_info(stock_info)}
