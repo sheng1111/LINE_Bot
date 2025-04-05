@@ -13,7 +13,7 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 import os
 from dotenv import load_dotenv
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import uvicorn
 from database import db
 from gemini_client import gemini
@@ -29,6 +29,7 @@ from futures_info import get_futures_info, format_futures_info
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import re
+from twse_api import twse_api
 
 # 載入環境變數
 load_dotenv()
@@ -479,116 +480,10 @@ async def process_message(user_id, message, reply_token, max_retries=3):
         # 記錄查詢
         log_query(user_id, message)
 
-        # 1. 首先處理股票查詢 - 更靈活的匹配方式
-        stock_code = None
-        # 檢查是否為純數字（可能是股票代碼）
-        if message.isdigit() and (len(message) == 4 or len(message) == 5):
-            stock_code = message
-        # 處理 "查詢2330" 或 "查詢 2330" 的情況
-        elif message.startswith('查詢'):
-            parts = message.split('查詢')
-            if len(parts) > 1:
-                # 提取數字
-                numbers = re.findall(r'\d+', parts[1])
-                if numbers and (len(numbers[0]) == 4 or len(numbers[0]) == 5):
-                    stock_code = numbers[0]
-
-        if stock_code:
-            # 獲取股票資訊
-            stock_info = get_stock_info(stock_code)
-            response = format_stock_info(stock_info)
-
-            # 使用 LLM 提供簡短建議，並參考即時股價資訊
-            prompt = f"""
-            你是一個專業的投資顧問。以下是股票 {stock_code} 的即時資訊：
-
-            {response}
-
-            請根據以上即時資訊，提供一個簡短的投資建議。
-            回答時要：
-            1. 根據即時股價、漲跌幅、成交量等數據進行分析
-            2. 提供簡要建議
-            3. 提醒投資風險
-            4. 回答要簡短，不要超過 100 字
-            5. 不要使用任何格式符號（如 *、#、` 等）
-
-            請用繁體中文回答，語氣要專業且友善。
-            """
-            advice = gemini.generate_response(prompt)
-            # 移除可能的 markdown 格式
-            advice = remove_markdown(advice)
-
-            # 合併股票資訊和建議
-            full_response = f"{response}\n\n📊 投資建議：\n{advice}"
-
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[TextMessage(text=full_response)]
-                )
-            )
-            return
-
-        # 2. 處理股票分析相關問題
-        if any(char.isdigit() for char in message) and ('買' in message or '賣' in message or '分析' in message):
-            # 提取股票代碼
-            numbers = re.findall(r'\d+', message)
-            if numbers and (len(numbers[0]) == 4 or len(numbers[0]) == 5):
-                stock_code = numbers[0]
-                # 獲取即時股票資訊
-                stock_info = get_stock_info(stock_code)
-                stock_info_text = format_stock_info(stock_info)
-
-                # 使用 LLM 分析股票，並參考即時資訊
-                prompt = f"""
-                你是一個專業的投資顧問。以下是股票 {stock_code} 的即時資訊：
-
-                {stock_info_text}
-
-                使用者問了以下問題：
-                {message}
-
-                請根據以上即時資訊，分析該股票的投資建議。
-                回答時要：
-                1. 根據即時股價、漲跌幅、成交量等數據進行分析
-                2. 提供具體的投資建議
-                3. 提醒投資風險
-                4. 回答要簡短，不要超過 200 字
-                5. 不要使用任何格式符號（如 *、#、` 等）
-
-                請用繁體中文回答，語氣要專業且友善。
-                """
-                response = gemini.generate_response(prompt)
-                # 移除可能的 markdown 格式
-                response = remove_markdown(response)
-                await line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=reply_token,
-                        messages=[TextMessage(text=response)]
-                    )
-                )
-                return
-
-        # 3. 處理一般對話
-        if not is_investment_related(message):
-            # 非投資相關問題，直接使用 AI 回答
-            prompt = f"""
-            你是一個友善的 AI 助手。使用者問了以下問題：
-            {message}
-
-            請用專業且友善的方式回答。
-            回答時要：
-            1. 保持禮貌和專業
-            2. 提供有用的資訊
-            3. 如果問題超出你的知識範圍，請禮貌地告知
-            4. 回答要簡短，不要超過 200 字
-            5. 不要使用任何格式符號（如 *、#、` 等）
-
-            請用繁體中文回答，語氣要友善且專業。
-            """
-            response = gemini.generate_response(prompt)
-            # 移除可能的 markdown 格式
-            response = remove_markdown(response)
+        # 1. 處理簡單問候語
+        greetings = ['hi', 'hello', '你好', '哈囉', '嗨']
+        if message.lower() in greetings or any(greeting in message.lower() for greeting in greetings):
+            response = "你好！我是一個 AI 助手，可以回答各種問題，特別擅長投資理財相關的諮詢。很高興為您服務！"
             await line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=reply_token,
@@ -597,20 +492,130 @@ async def process_message(user_id, message, reply_token, max_retries=3):
             )
             return
 
-        # 4. 其他投資相關問題
-        prompt = f"""
-        你是一個專業的投資顧問。使用者問了以下問題：
+        # 2. 使用 LLM 分析使用者意圖
+        intent_prompt = f"""
+        你是一個專業的投資助手，需要分析使用者的意圖並將其轉換為對應的指令。
+        以下是使用者輸入的訊息：
         {message}
 
-        請用專業且易懂的方式回答。
+        請分析這段訊息，並判斷使用者想要執行什麼功能。
+        可能的指令包括：
+        - 查詢股票資訊（如：2330、台積電）
+        - 查看市場概況（如：大盤、市場、行情）
+        - 查看市場排行（如：排行、熱門股）
+        - 查看新聞（如：新聞、最新消息）
+        - 技術分析（如：技術分析、KD、MACD）
+        - 籌碼分析（如：籌碼、法人買賣）
+        - 歷史資料（如：歷史、過去股價）
+        - 投資組合（如：我的股票、追蹤清單）
+        - 設定提醒（如：提醒、價格提醒）
+
+        請用以下格式回答：
+        意圖：<判斷出的意圖>
+        指令：<對應的指令>
+        參數：<需要的參數，如果有的話>
+
+        例如：
+        使用者輸入：「台積電現在怎麼樣？」
+        回答：
+        意圖：查詢股票資訊
+        指令：查詢
+        參數：2330
+
+        使用者輸入：「最近有什麼重要新聞嗎？」
+        回答：
+        意圖：查看新聞
+        指令：新聞
+        參數：無
+
+        請用繁體中文回答。
+        """
+        intent_analysis = gemini.generate_response(intent_prompt)
+
+        # 解析 LLM 的回應
+        intent = None
+        command = None
+        params = None
+
+        for line in intent_analysis.split('\n'):
+            if line.startswith('意圖：'):
+                intent = line.replace('意圖：', '').strip()
+            elif line.startswith('指令：'):
+                command = line.replace('指令：', '').strip()
+            elif line.startswith('參數：'):
+                params = line.replace('參數：', '').strip()
+                if params == '無':
+                    params = None
+
+        # 根據分析結果執行對應功能
+        if intent and command:
+            if command == '查詢' and params:
+                # 處理股票查詢
+                stock_info = get_stock_info(params)
+                response = format_stock_info(stock_info)
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=reply_token,
+                        messages=[TextMessage(text=response)]
+                    )
+                )
+                return
+            elif command == '新聞':
+                # 處理新聞查詢
+                news = twse_api.get_market_news()
+                if news:
+                    message = "市場重要新聞\n\n"
+                    for i, item in enumerate(news[:5], 1):
+                        message += f"{i}. {item['title']}\n"
+                        message += f"   {item['date']}\n\n"
+                else:
+                    message = "目前沒有最新新聞"
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=reply_token,
+                        messages=[TextMessage(text=message)]
+                    )
+                )
+                return
+            elif command == '排行':
+                # 處理市場排行
+                rankings = twse_api.get_stock_ranking()
+                if rankings:
+                    message = "市場排行\n\n"
+                    message += "成交量排行：\n"
+                    for i, stock in enumerate(rankings.get('volume', [])[:5], 1):
+                        message += f"{i}. {stock['code']} {stock['name']} {stock['volume']:,}\n"
+                    message += "\n漲跌幅排行：\n"
+                    for i, stock in enumerate(rankings.get('change_percent', [])[:5], 1):
+                        message += f"{i}. {stock['code']} {stock['name']} {stock['change_percent']}%\n"
+                    message += "\n成交金額排行：\n"
+                    for i, stock in enumerate(rankings.get('amount', [])[:5], 1):
+                        message += f"{i}. {stock['code']} {stock['name']} {stock['amount']:,}\n"
+                else:
+                    message = "無法獲取市場排行資訊"
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=reply_token,
+                        messages=[TextMessage(text=message)]
+                    )
+                )
+                return
+            # ... 其他指令的處理 ...
+
+        # 如果無法判斷意圖，則使用一般問題處理
+        prompt = f"""
+        你是一個友善的 AI 助手，擅長投資理財諮詢但也可以回答其他問題。使用者問了以下問題：
+        {message}
+
+        請用專業且友善的方式回答。
         回答時要：
-        1. 提供專業的投資建議
-        2. 分析可能的風險
-        3. 給出具體的建議
+        1. 保持禮貌和專業
+        2. 提供有用的資訊
+        3. 如果問題超出你的知識範圍，請禮貌地告知
         4. 回答要簡短，不要超過 200 字
         5. 不要使用任何格式符號（如 *、#、` 等）
 
-        請用繁體中文回答，語氣要專業且友善。
+        請用繁體中文回答，語氣要友善且專業。如果是投資相關問題，請提供專業建議；如果是其他問題，就正常回答。
         """
         response = gemini.generate_response(prompt)
         # 移除可能的 markdown 格式
