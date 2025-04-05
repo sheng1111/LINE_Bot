@@ -4,12 +4,15 @@ import logging
 from datetime import datetime, timedelta
 from database import db
 import pandas as pd
-import yfinance as yf
 import time
 
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# 台灣證交所 API 設定
+TWSE_API_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+ETF_INFO_URL = "https://www.twse.com.tw/zh/ETF/etfBasicInfo"
 
 
 class ETFAnalyzer:
@@ -19,12 +22,12 @@ class ETFAnalyzer:
         self.popular_etfs = ['0050', '0056',
                              '006208', '00878', '00692']  # 熱門 ETF 列表
         self.etf_list = {
-            '0050.TW': '元大台灣50',      # 大盤型
-            '0056.TW': '元大高股息',      # 高股息型
-            '006208.TW': '富邦台50',      # 大盤型
-            '00878.TW': '國泰永續高股息',  # 高股息型
-            '00891.TW': '中信關鍵半導體',  # 半導體產業
-            '00881.TW': '國泰台灣5G+'     # 5G通訊產業
+            '0050': '元大台灣50',      # 大盤型
+            '0056': '元大高股息',      # 高股息型
+            '006208': '富邦台50',      # 大盤型
+            '00878': '國泰永續高股息',  # 高股息型
+            '00891': '中信關鍵半導體',  # 半導體產業
+            '00881': '國泰台灣5G+'     # 5G通訊產業
         }
         self.industry_mapping = {
             '半導體': ['2330', '2303', '2317'],
@@ -76,12 +79,8 @@ class ETFAnalyzer:
     def get_etf_info(self, etf_code: str) -> Dict:
         """
         取得 ETF 基本資訊
-
-        Args:
-            etf_code: ETF 代碼
-
-        Returns:
-            Dict: ETF 資訊
+        :param etf_code: ETF 代碼
+        :return: ETF 資訊
         """
         try:
             # 檢查快取
@@ -102,18 +101,37 @@ class ETFAnalyzer:
                 }
                 return etf_data
 
-            # 如果資料庫沒有，從 API 獲取
-            # TODO: 實作實際的 ETF API 呼叫
-            etf_data = {
-                'etf_code': etf_code,
-                'name': f'測試ETF_{etf_code}',
-                'price': 100.0,
-                'change': 1.5,
-                'volume': 1000000,
-                'yield_rate': 3.5,  # 殖利率
-                'expense_ratio': 0.3,  # 管理費
-                'timestamp': datetime.now()
-            }
+            # 如果資料庫沒有，從證交所 API 獲取
+            def _fetch_etf_info(code):
+                # 獲取 ETF 基本資訊
+                response = requests.get(f"{ETF_INFO_URL}?stockNo={code}")
+                response.raise_for_status()
+                data = response.json()
+
+                # 獲取 ETF 價格資訊
+                url = f"{TWSE_API_URL}?ex_ch=tse_{code}.tw"
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                    'Accept': 'application/json',
+                    'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Connection': 'keep-alive',
+                    'Referer': 'https://mis.twse.com.tw/stock/index.jsp'
+                }
+                price_response = requests.get(url, headers=headers)
+                price_data = price_response.json()
+
+                return {
+                    'etf_code': code,
+                    'name': data.get('name', f'ETF_{code}'),
+                    'price': float(price_data.get('data', [{}])[0].get('close', 0)),
+                    'change': float(price_data.get('data', [{}])[0].get('change', 0)),
+                    'volume': int(price_data.get('data', [{}])[0].get('volume', 0)),
+                    'yield_rate': float(data.get('yield_rate', 0)),
+                    'expense_ratio': float(data.get('expense_ratio', 0)),
+                    'timestamp': datetime.now()
+                }
+
+            etf_data = self._get_with_retry(etf_code, _fetch_etf_info)
 
             # 儲存到資料庫
             collection.insert_one(etf_data)
@@ -141,14 +159,9 @@ class ETFAnalyzer:
                     return cache_data['data']
 
             def _fetch_ranking(code):
-                etf = yf.Ticker(code)
-                info = etf.info
-                return {
-                    'name': self.etf_list[code],
-                    'price': info.get('regularMarketPrice', 0),
-                    'change': info.get('regularMarketChangePercent', 0),
-                    'volume': info.get('regularMarketVolume', 0)
-                }
+                # 實現獲取 ETF 排行的邏輯
+                # 這裡需要根據實際情況實現
+                pass
 
             ranking = {}
             for etf_code in self.etf_list.keys():
@@ -176,23 +189,25 @@ class ETFAnalyzer:
                 if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
                     return cache_data['data']
 
-            def _fetch_holdings(code):
-                etf = yf.Ticker(code)
-                return etf.get_holdings()
-
+            # 從資料庫獲取成分股資料
+            collection = db.get_collection('etf_holdings')
             overlap_stocks = {}
+
             for etf_code in etf_codes:
-                holdings = self._get_with_retry(etf_code, _fetch_holdings)
-                for _, row in holdings.iterrows():
-                    stock_code = row['Symbol']
-                    if stock_code not in overlap_stocks:
-                        overlap_stocks[stock_code] = {'etfs': [], 'weight': 0}
-                    overlap_stocks[stock_code]['etfs'].append(etf_code)
-                    overlap_stocks[stock_code]['weight'] += row['% of Assets']
+                holdings = collection.find_one({'etf_code': etf_code})
+                if holdings:
+                    for stock in holdings.get('holdings', []):
+                        stock_code = stock.get('code')
+                        if stock_code not in overlap_stocks:
+                            overlap_stocks[stock_code] = {
+                                'etfs': [], 'weight': 0}
+                        overlap_stocks[stock_code]['etfs'].append(etf_code)
+                        overlap_stocks[stock_code]['weight'] += stock.get(
+                            'weight', 0)
 
             # 過濾出重疊的股票
             result = {
-                'timestamp': pd.Timestamp.now(),
+                'timestamp': datetime.now(),
                 'overlap_stocks': {
                     code: info for code, info in overlap_stocks.items()
                     if len(info['etfs']) > 1
@@ -221,8 +236,9 @@ class ETFAnalyzer:
                     return cache_data['data']
 
             def _fetch_holdings(code):
-                etf = yf.Ticker(code)
-                return etf.get_holdings()
+                # 實現獲取 ETF 成分股的邏輯
+                # 這裡需要根據實際情況實現
+                pass
 
             industry_dist = {}
             etf_comparison = {}
@@ -273,13 +289,9 @@ class ETFAnalyzer:
                     return cache_data['data']
 
             def _fetch_fees(code):
-                etf = yf.Ticker(code)
-                info = etf.info
-                return {
-                    'name': self.etf_list[code],
-                    'expense_ratio': info.get('annualReportExpenseRatio', 0),
-                    'aum': info.get('totalAssets', 0)
-                }
+                # 實現獲取 ETF 費用率的邏輯
+                # 這裡需要根據實際情況實現
+                pass
 
             fee_comparison = {}
             for etf_code in etf_codes:
@@ -316,19 +328,17 @@ class ETFAnalyzer:
     def format_overlap_analysis(self, analysis: Dict[str, Any]) -> str:
         """格式化重疊分析結果"""
         if not analysis or 'overlap_stocks' not in analysis:
-            return """抱歉，我暫時無法完成 ETF 重疊分析 😅
-
-可能的原因：
+            return """目前無法完成 ETF 重疊分析，可能原因如下：
 1. 資料暫時無法取得
-2. ETF 代碼可能有誤
+2. ETF 代碼有誤
 3. 系統處理中斷
 
 建議您：
-✓ 確認 ETF 代碼是否正確
-✓ 稍後再試一次
-✓ 可以先查看單一 ETF 的資訊
-
-需要我為您查詢個別 ETF 的資訊嗎？😊"""
+1. 確認 ETF 代碼是否正確
+2. 稍後再試一次
+3. 可先查看單一 ETF 的資訊
+4. 需要我幫您查詢個別 ETF 嗎？
+5. 禁止回答 Markdown、符號、表情符號"""
 
         result = """🔍 ETF 重疊持股分析報告
 
@@ -358,59 +368,99 @@ class ETFAnalyzer:
 • ETF 成分股會定期調整
 • 投資時請考慮個人風險承受度
 • 建議適度分散投資降低風險
+• 禁止回答 Markdown、符號、表情符號
 
 更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
 
         return result
+
+    def analyze_etf(self, etf_code: str) -> Dict:
+        """
+        分析單一 ETF
+        :param etf_code: ETF 代碼
+        :return: 分析結果字典
+        """
+        try:
+            # 檢查快取
+            cache_key = f"analysis_{etf_code}"
+            if cache_key in self.cache:
+                cache_data = self.cache[cache_key]
+                if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
+                    return cache_data['data']
+
+            # 獲取 ETF 基本資訊
+            etf_info = self.get_etf_info(etf_code)
+            if not etf_info:
+                return {'error': f'無法獲取 ETF {etf_code} 的資訊'}
+
+            # 從資料庫獲取成分股資料
+            collection = db.get_collection('etf_holdings')
+            holdings_data = collection.find_one({'etf_code': etf_code})
+
+            # 分析產業分布
+            industry_dist = {}
+            top_holdings = []
+
+            if holdings_data:
+                for stock in holdings_data.get('holdings', []):
+                    stock_code = stock.get('code')
+                    weight = stock.get('weight', 0)
+
+                    # 找出股票所屬產業
+                    for industry, stocks in self.industry_mapping.items():
+                        if stock_code in stocks:
+                            if industry not in industry_dist:
+                                industry_dist[industry] = 0
+                            industry_dist[industry] += weight
+                            break
+
+                    # 記錄前十大持股
+                    if len(top_holdings) < 10:
+                        top_holdings.append({
+                            'code': stock_code,
+                            'name': stock.get('name', 'Unknown'),
+                            'weight': weight
+                        })
+
+            # 生成分析結果
+            result = {
+                'etf_code': etf_code,
+                'name': etf_info['name'],
+                'price': etf_info['price'],
+                'yield_rate': etf_info['yield_rate'],
+                'expense_ratio': etf_info['expense_ratio'],
+                'industry_distribution': industry_dist,
+                'top_holdings': top_holdings,
+                'total_holdings': len(holdings_data.get('holdings', [])) if holdings_data else 0,
+                'analysis_time': datetime.now()
+            }
+
+            # 更新快取
+            self.cache[cache_key] = {
+                'data': result,
+                'timestamp': datetime.now()
+            }
+
+            return result
+
+        except Exception as e:
+            logger.error(f"分析 ETF {etf_code} 時發生錯誤：{str(e)}")
+            return {'error': f'分析 ETF {etf_code} 時發生錯誤：{str(e)}'}
 
 
 # 建立全域分析器實例
 analyzer = ETFAnalyzer()
 
 
-def analyze_etf_overlap(etf_codes: List[str] = ['0050.TW', '0056.TW', '006208.TW']) -> Dict:
+def analyze_etf_overlap(etf_codes: List[str] = ['0050', '0056', '006208']) -> Dict:
     """
     分析多個 ETF 的重疊成分股
     :param etf_codes: ETF 代碼列表
     :return: 重疊成分股資訊
     """
     try:
-        overlap_stocks = {}
-        etf_holdings = {}
-
-        # 獲取每個 ETF 的成分股
-        for etf_code in etf_codes:
-            etf = yf.Ticker(etf_code)
-            holdings = etf.get_holdings()
-            etf_holdings[etf_code] = holdings
-
-            # 統計每個股票出現的次數
-            for stock in holdings.index:
-                if stock in overlap_stocks:
-                    overlap_stocks[stock]['count'] += 1
-                    overlap_stocks[stock]['etfs'].append(etf_code)
-                else:
-                    overlap_stocks[stock] = {
-                        'count': 1,
-                        'etfs': [etf_code],
-                        'name': holdings.loc[stock, 'Name'] if 'Name' in holdings.columns else 'Unknown'
-                    }
-
-        # 找出重疊的股票
-        result = {
-            'timestamp': datetime.now(),
-            'overlap_stocks': {
-                stock: info for stock, info in overlap_stocks.items()
-                if info['count'] > 1
-            },
-            'etf_holdings': etf_holdings
-        }
-
-        # 保存到資料庫
-        collection = db.get_collection('etf_overlap_analysis')
-        collection.insert_one(result)
-
-        return result
+        # 使用 ETFAnalyzer 實例進行分析
+        return analyzer.analyze_etf_overlap(etf_codes)
     except Exception as e:
         logger.error(f"分析 ETF 重疊成分股時發生錯誤: {str(e)}")
         return None
@@ -422,15 +472,7 @@ def format_overlap_analysis(analysis: Dict) -> str:
     :param analysis: 分析結果
     :return: 格式化後的字符串
     """
-    if not analysis or 'overlap_stocks' not in analysis:
+    if not analysis:
         return "無法獲取 ETF 重疊分析結果。"
 
-    result = "📊 ETF 重疊成分股分析\n\n"
-
-    for stock, info in analysis['overlap_stocks'].items():
-        result += f"📈 {stock} ({info['name']})\n"
-        result += f"   📌 出現在 {info['count']} 個 ETF 中\n"
-        result += f"   📋 ETF 列表: {', '.join(info['etfs'])}\n\n"
-
-    result += f"⏰ 分析時間: {analysis['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}"
-    return result
+    return analyzer.format_overlap_analysis(analysis)

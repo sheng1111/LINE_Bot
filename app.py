@@ -45,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 # 投資相關關鍵字
 investment_keywords = ['投資', '股票', '基金', 'ETF',
-                       '債券', '風險', '報酬', '資產配置', '除權息', '配息', '股利']
+                       '債券', '風險', '報酬', '資產配置', '除權息', '配息', '股利',
+                       '提醒', '技術分析', '新聞', '投資組合', '績效', '比較']
 
 
 def is_investment_related(text):
@@ -233,42 +234,42 @@ def get_help_message() -> str:
     :return: 格式化後的幫助訊息
     """
     return """
-🤖 投資小幫手使用說明
+投資小幫手使用說明
 
-📊 股票查詢
-輸入：`查詢 2330`
+股票查詢
+輸入：查詢 2330
 功能：查詢股票即時資訊，包括價格、成交量、本益比等
 
-📊 台指期查詢
-輸入：`台指期`
+台指期查詢
+輸入：台指期
 功能：查詢台指期即時資訊，包括價格、漲跌幅、成交量等
 
-📊 ETF 分析
+ETF 分析
 功能：每月 7 日和 14 日自動推送 ETF 重疊成分股分析
 
-💬 投資諮詢
+投資諮詢
 直接輸入您的投資問題，例如：
-- "現在適合買 2330 嗎？"
-- "0056 的配息情況如何？"
-- "請分析台積電的技術面"
+- 現在適合買 2330 嗎？
+- 0056 的配息情況如何？
+- 請分析台積電的技術面
 
-📅 除權息查詢
-輸入：`除權息 0056`
+除權息查詢
+輸入：除權息 0056
 功能：查詢股票的除權息資訊
 
-📊 同類股比較
-輸入：`比較 2330 2303 2317`
+同類股比較
+輸入：比較 2330 2303 2317
 功能：比較多檔股票的表現
 
-📢 到價提醒
-輸入：`提醒 2330 600`
+到價提醒
+輸入：提醒 2330 600
 功能：設定股票價格提醒（每月限制 2 檔）
 
-❓ 其他功能
-- 輸入 `/help` 顯示此說明
+其他功能
+- 輸入 /help 顯示此說明
 - 輸入任何投資相關問題，AI 會為您解答
 
-⚠️ 注意事項
+注意事項
 - 每月推播次數有限制
 - 資料僅供參考，投資需謹慎
 """
@@ -440,145 +441,142 @@ async def send_etf_overlap_analysis(max_retries=3):
 
 
 async def process_message(user_id, message, reply_token, max_retries=3):
-    """處理使用者訊息"""
-    if user_id in processing_requests:
-        logger.warning(f"使用者 {user_id} 的請求正在處理中")
-        return
-
-    processing_requests[user_id] = True
+    """處理用戶訊息"""
     try:
-        # 發送輸入中動畫
+        # 顯示載入動畫
         await show_loading_animation(user_id)
 
-        # 記錄使用者查詢
+        # 記錄查詢
         log_query(user_id, message)
 
-        # 處理特殊指令
-        if message.startswith('分析 '):
-            # 股票分析
+        # 檢查是否為投資相關問題
+        if not is_investment_related(message):
+            # 非投資相關問題，直接使用 AI 回答
+            prompt = f"""
+            你是一個友善的 AI 助手。使用者問了以下問題：
+            {message}
+
+            請用專業且友善的方式回答。
+            回答時要：
+            1. 保持禮貌和專業
+            2. 提供有用的資訊
+            3. 如果問題超出你的知識範圍，請禮貌地告知
+
+            請用繁體中文回答(禁止使用markdown)，語氣要友善且專業。
+            """
+            response = await gemini.generate_response(prompt)
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=response)]
+                )
+            )
+            return
+
+        # 處理股票查詢
+        if message.startswith('查詢 '):
             stock_code = message.split(' ')[1]
-            try:
-                analysis = analyzer.analyze_stock(stock_code)
-                response = f"📊 {stock_code} 分析報告：\n\n{analysis}"
-            except Exception as e:
-                logger.error(f"股票分析失敗: {str(e)}")
-                response = f"抱歉，分析股票 {stock_code} 時發生錯誤。"
+            stock_info = get_stock_info(stock_code)
+            response = format_stock_info(stock_info)
+
+        # 處理股票分析
+        elif message.startswith('分析 '):
+            stock_code = message.split(' ')[1]
+            analysis = analyzer.analyze_stock(stock_code)
+            response = f"📊 {stock_code} 分析報告：\n\n{analysis}"
+
+        # 處理ETF分析
         elif message.startswith('ETF分析 '):
-            # ETF 分析
             etf_code = message.split(' ')[1]
-            try:
-                analysis = etf_analyzer.analyze_etf(etf_code)
-                response = f"📊 {etf_code} ETF 分析報告：\n\n{analysis}"
-            except Exception as e:
-                logger.error(f"ETF 分析失敗: {str(e)}")
-                response = f"抱歉，分析 ETF {etf_code} 時發生錯誤。"
+            analysis = etf_analyzer.analyze_etf(etf_code)
+            response = f"📊 {etf_code} ETF 分析報告：\n\n{analysis}"
+
+        # 處理除權息查詢
         elif message.startswith('除權息 '):
-            # 除權息分析
             stock_code = message.split(' ')[1]
-            try:
-                analysis = dividend_analyzer.analyze_dividend(stock_code)
-                response = f"📅 {stock_code} 除權息分析：\n\n{analysis}"
-            except Exception as e:
-                logger.error(f"除權息分析失敗: {str(e)}")
-                response = f"抱歉，分析 {stock_code} 除權息時發生錯誤。"
+            analysis = dividend_analyzer.analyze_dividend(stock_code)
+            response = f"📅 {stock_code} 除權息分析：\n\n{analysis}"
+
+        # 處理同類股比較
         elif message.startswith('比較 '):
-            # 同類股比較
             stock_codes = message.split(' ')[1:]
-            try:
-                comparison = comparator.compare_stocks(stock_codes)
-                response = f"📊 同類股比較分析：\n\n{comparison}"
-            except Exception as e:
-                logger.error(f"同類股比較失敗: {str(e)}")
-                response = f"抱歉，比較股票時發生錯誤。"
+            comparison = comparator.compare_stocks(stock_codes)
+            response = f"📊 同類股比較分析：\n\n{comparison}"
+
+        # 處理台指期查詢
+        elif message == '台指期':
+            futures_info = get_futures_info()
+            response = format_futures_info(futures_info)
+
+        # 其他投資相關問題
         else:
-            # 生成回應
-            if is_investment_related(message):
-                # 先檢查是否包含股票代碼
-                stock_codes = []
-                words = message.split()
-                for word in words:
-                    if word.isdigit() and (len(word) == 4 or len(word) == 5):  # 支援4碼和5碼的股票代碼
-                        stock_codes.append(word)
+            # 先檢查是否包含股票代碼
+            stock_codes = []
+            words = message.split()
+            for word in words:
+                if word.isdigit() and (len(word) == 4 or len(word) == 5):
+                    stock_codes.append(word)
 
-                if stock_codes:
-                    # 如果有股票代码，先獲取即時資訊
-                    stock_infos = []
-                    for code in stock_codes:
-                        for attempt in range(max_retries):
-                            try:
-                                info = get_stock_info(code)
-                                if info:
-                                    stock_infos.append(format_stock_info(info))
-                                    break
-                                else:
-                                    if attempt == max_retries - 1:
-                                        stock_infos.append(
-                                            f"無法獲取股票 {code} 的即時資訊，請確認股票代碼是否正確。")
-                            except Exception as e:
-                                logger.warning(
-                                    f"獲取股票 {code} 資訊失敗 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
+            if stock_codes:
+                # 如果有股票代碼，先獲取即時資訊
+                stock_infos = []
+                for code in stock_codes:
+                    for attempt in range(max_retries):
+                        try:
+                            info = get_stock_info(code)
+                            if info:
+                                stock_infos.append(format_stock_info(info))
+                                break
+                            else:
                                 if attempt == max_retries - 1:
-                                    logger.error(
-                                        f"獲取股票 {code} 資訊最終失敗: {str(e)}")
                                     stock_infos.append(
-                                        f"無法獲取股票 {code} 的即時資訊，系統可能暫時無回應，請稍後再試。")
+                                        f"無法獲取股票 {code} 的即時資訊，請確認股票代碼是否正確。")
+                        except Exception as e:
+                            logger.warning(
+                                f"獲取股票 {code} 資訊失敗 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
+                            if attempt == max_retries - 1:
+                                logger.error(f"獲取股票 {code} 資訊最終失敗: {str(e)}")
+                                stock_infos.append(
+                                    f"無法獲取股票 {code} 的即時資訊，系統可能暫時無回應，請稍後再試。")
 
-                    # 將即時資訊加入 prompt
-                    real_time_info = "\n\n".join(stock_infos)
-                    prompt = f"""
-                    你是一個專業的投資顧問。以下是即時股票資訊：
-
-                    {real_time_info}
-
-                    使用者問了以下問題：
-                    {message}
-
-                    請根據即時資訊，用專業且易懂的方式回答使用者的問題。
-                    回答時要：
-                    1. 先引用即時數據
-                    2. 分析這些數據的意義
-                    3. 提供專業的投資建議
-                    4. 提醒投資風險
-
-                    請用中文回答，語氣要專業且友善。
-                    """
-                else:
-                    # 如果沒有股票代碼，直接回答投資相關問題
-                    prompt = f"""
-                    你是一個專業的投資顧問。使用者問了以下問題：
-                    {message}
-
-                    請用專業且易懂的方式回答。
-                    回答時要：
-                    1. 提供專業的投資建議
-                    2. 分析可能的風險
-                    3. 給出具體的建議
-
-                    請用中文回答，語氣要專業且友善。
-                    """
-            else:
-                # 對於非投資相關問題，使用 Gemini 生成引導回應
+                # 將即時資訊加入 prompt
+                real_time_info = "\n\n".join(stock_infos)
                 prompt = f"""
-                你是一個友善的投資顧問機器人。使用者問了以下問題：
+                你是一個專業的投資顧問。以下是即時股票資訊：
+
+                {real_time_info}
+
+                使用者問了以下問題：
                 {message}
 
-                請用友善且專業的語氣，引導使用者了解你可以提供的服務。
-                參考以下功能：
-                - 股票查詢（例如：查詢 2330）
-                - 股票分析（例如：分析 2330）
-                - ETF 分析（例如：ETF分析 0050）
-                - 除權息查詢（例如：除權息 2330）
-                - 同類股比較（例如：比較 2330 2303 2317）
-                - 台指期查詢
-                - 投資諮詢
+                請根據即時資訊，用專業且易懂的方式回答使用者的問題。
+                回答時要：
+                1. 先引用即時數據
+                2. 分析這些數據的意義
+                3. 提供專業的投資建議
+                4. 提醒投資風險
 
-                請用中文回答，語氣要親切且專業。
+                請用繁體中文回答(禁止使用markdown)，語氣要專業且友善。
+                """
+            else:
+                # 如果沒有股票代碼，直接回答投資相關問題
+                prompt = f"""
+                你是一個專業的投資顧問。使用者問了以下問題：
+                {message}
+
+                請用專業且易懂的方式回答。
+                回答時要：
+                1. 提供專業的投資建議
+                2. 分析可能的風險
+                3. 給出具體的建議
+
+                請用繁體中文回答(禁止使用markdown)，語氣要專業且友善。
                 """
 
             # 生成回應
             for attempt in range(max_retries):
                 try:
-                    response = gemini.generate_response(prompt, user_id)
+                    response = await gemini.generate_response(prompt)
                     break
                 except Exception as e:
                     logger.warning(
@@ -587,39 +585,22 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                         logger.error(f"生成回應最終失敗: {str(e)}")
                         response = "抱歉，目前無法生成回應，請稍後再試。"
 
-        # 回覆訊息
-        for attempt in range(max_retries):
-            try:
-                await line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=reply_token,
-                        messages=[TextMessage(text=response)]
-                    )
-                )
-                logger.info(f"成功回覆訊息給使用者 {user_id}")
-                break
-            except Exception as e:
-                logger.warning(
-                    f"回覆訊息失敗 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
-                if attempt == max_retries - 1:
-                    logger.error(f"回覆訊息最終失敗: {str(e)}")
-                    raise
+        # 發送回應
+        await line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text=response)]
+            )
+        )
 
     except Exception as e:
-        logger.error(f"處理訊息時發生錯誤：{str(e)}", exc_info=True)
-        try:
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[TextMessage(text="抱歉，處理您的請求時發生錯誤，請稍後再試。")]
-                )
+        logger.error(f"處理訊息時發生錯誤: {str(e)}")
+        await line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text="抱歉，處理您的請求時發生錯誤。請稍後再試。")]
             )
-        except Exception as reply_error:
-            logger.error(f"發送錯誤訊息時發生錯誤：{str(reply_error)}")
-    finally:
-        # 清除處理標記
-        if user_id in processing_requests:
-            del processing_requests[user_id]
+        )
 
 
 @app.get("/")

@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 class PeerComparator:
     def __init__(self):
         self.cache = {}
-        self.cache_timeout = timedelta(hours=1)  # 快取 1 小時
+        self.cache_timeout = timedelta(minutes=30)
+        self.logger = logging.getLogger(__name__)
         self.api_url = "https://api.example.com/peers"  # 替換為實際的同業 API
 
     def get_peer_stocks(self, stock_code: str) -> Dict:

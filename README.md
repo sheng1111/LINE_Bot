@@ -1,325 +1,93 @@
-# AI 投資導向機器人 - 完整說明文件
+# LINE 投資機器人
 
-## 🚀 一、專案目的
-
-此機器人主要為個人及少數朋友使用，基於免費資源（Render + LINE + Gemini API）開發，並具備以下能力與特色：
-
-- 📈 經濟資訊數據自動抓取與整合
-- 🧠 AI 資料分析與投資建議
-- 💬 LINE 互動式對話與通知功能
-- 📊 管理後台模擬（未來商業化考量）
-- ♻️ 資源最佳化與節能設計，免費且穩定
-
-> 💡 免費版限制：
->
-> - LINE Bot：每月推播 200 則
-> - Gemini API：每分鐘 60 次請求
-> - Render：每月 750 小時運行時間，512MB RAM
-> - 建議使用人數：5~10 人
-
----
-
-## ⚙️ 二、功能模組說明
-
-### 📌 基本功能
-
-1. **股票資訊查詢**
-
-   - 輸入：`查詢 2330`
-   - 顯示：當前價格、成交量、本益比、殖利率等資訊
-
-2. **ETF 成分股分析**
-
-   - 自動分析熱門 ETF（0050、006208、0056、00878、00891、00892）成分股
-   - 每月 14 日自動推送重疊成分股分析
-   - 顯示重疊股票及其出現的 ETF 列表
-   - 提供產業分布分析
-   - 比較各 ETF 費用率
-
-3. **個股財務與技術分析**
-
-   - 財務面：EPS、ROE、殖利率、現金流量、負債比率、營收成長率
-   - 技術面：KD、MACD、成交量、布林通道、支撐壓力位
-   - 市場情緒：融資融券、外資持股、法人買賣超
-
-4. **AI 投資建議（Gemini API）**
-
-   - 將結構化數據轉成易讀投資建議與風險提示
-
-5. **LINE Bot 互動**
-
-   - 使用者透過 LINE 簡單指令進行互動，如：
-     - `查詢 2330` (個股分析)
-     - `ETF排行` (熱門 ETF 績效)
-     - `今日建議` (AI 推薦個股)
-
-6. **個人化投資風格設定**
-
-   - 簡易測驗分類使用者偏好，提供個人化 AI 建議
-
-7. **到價提醒功能**（注意免費推播限制）
-
-   - 每日固定時間檢查，滿足條件透過 LINE 推送
-   - 每位使用者最多 2 檔股票提醒
-
-8. **除權息與股東會查詢**
-
-   - 輸入：`除權息 0056`或`股東會 2330`，即可取得資訊
-
-9. **自然語言互動問答**
-
-   - 支援類似：「現在適合買 2330 嗎？」之自然語言提問
-
-10. **同類股比較功能**
-
-- 輸入：`比較 2330 2303 2317` 即可生成比較圖表
-
-11. **AI 財報摘要功能**
-
-- 自動抓取上市公司季報，推播重點摘要
-
----
-
-## 🖥️ 商業級應用模組（模擬）
-
-1. **管理後台 Dashboard**
-
-   - 查看使用情況、推播剩餘次數、熱門查詢
-
-2. **使用者行為分析與紀錄**
-
-   - MongoDB Atlas 儲存互動紀錄與用戶偏好
-
-3. **資源管理與優化**
-
-   - 限制每日 API 使用次數
-   - 快取常用資料，降低 API 重複呼叫
-
-4. **免費服務限制管控**
-   - 每月 200 則推播上限管理
-   - API 使用次數即時監控與通知
-
----
-
-## 🎨 三、使用者互動設計
-
-- 使用者透過 LINE 傳送簡短指令，系統使用 `reply_message` 回覆以保持上下文。
-- 當免費推播額度即將用盡時，主動通知使用者：
-  > 📢 本月剩餘推播次數僅剩 12 次。
-- 若推播次數用盡，改以回覆文字建議用戶主動查詢：
-  > ⚠️ 您的提醒條件可能已觸發，但免費推播額度已達上限，請輸入`查詢 2330`以取得最新資訊。
-
----
-
-## 🛠️ 四、系統架構與部署環境
-
-### 📁 專案目錄結構
-
-```
-invest-bot/
-├── app.py                  # FastAPI主程式
-├── .env                    # 環境變數設定
-├── requirements.txt        # Python依賴
-├── vercel.json            # Vercel部署設定
-└── README.md              # 專案說明
-```
-
-### 🛠️ 技術使用說明
-
-| 元件       | 說明                  | 免費版限制       |
-| ---------- | --------------------- | ---------------- |
-| 部署平台   | Vercel (Serverless)   | 每月 100GB 流量  |
-| 語言與框架 | Python 3.11+、FastAPI | -                |
-| AI 服務    | Gemini API            | 每分鐘 60 次請求 |
-| LINE Bot   | 免費版                | 每月 200 則推播  |
-| 資料庫     | MongoDB Atlas 免費版  | 512MB 儲存空間   |
-
-## 🔧 五、部署指南
-
-### 1. 本地開發環境設置
-
-```bash
-# 建立虛擬環境
-python -m venv .venv
-
-# 啟動虛擬環境
-# Windows:
-.venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
-
-# 安裝依賴
-pip install -r requirements.txt
-
-# 啟動本地伺服器
-uvicorn app:app --reload
-```
-
-### 2. 選擇部署平台
-
-您可以選擇以下任一平台進行部署：
-
-#### 選項一：Railway 部署
-
-1. 在 [Railway](https://railway.app) 註冊帳號
-2. 點擊 "New Project"，選擇 "Deploy from GitHub repo"
-3. 選擇您的 GitHub 倉庫
-4. 在部署設置中：
-   - 選擇 Python 環境
-   - 設置啟動命令：`uvicorn app:app --host 0.0.0.0 --port $PORT`
-5. 在 Variables 部分添加以下環境變數：
-   - `LINE_CHANNEL_ACCESS_TOKEN`
-   - `LINE_CHANNEL_SECRET`
-   - `MONGODB_URI`
-   - `MONGODB_DB_NAME`
-   - `GEMINI_API_KEY`
-6. 點擊 "Deploy" 開始部署
-
-#### 選項二：Vercel 部署
-
-1. 將專案推送到 GitHub
-2. 在 Vercel 中導入 GitHub 專案
-3. 設定環境變數：
-   - LINE_CHANNEL_ACCESS_TOKEN
-   - LINE_CHANNEL_SECRET
-   - MONGODB_URI
-   - MONGODB_DB_NAME
-   - GEMINI_API_KEY
-4. 部署專案
-
-#### 選項三：Render 部署（推薦）
-
-1. 在 [Render](https://render.com) 註冊帳號
-2. 點擊 "New +" 按鈕，選擇 "Web Service"
-3. 連接您的 GitHub 倉庫
-4. 配置以下設置：
-   - Name: 您的服務名稱
-   - Environment: Python
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-5. 在 Environment Variables 部分添加以下環境變數：
-   - `LINE_CHANNEL_ACCESS_TOKEN`
-   - `LINE_CHANNEL_SECRET`
-   - `GEMINI_API_KEY`
-6. 點擊 "Create Web Service" 開始部署
-
-### 3. LINE Bot 設定
-
-1. 在 [LINE Developers](https://developers.line.biz/) 建立新的 Channel
-2. 設定 Webhook URL 為您選擇的部署平台（Railway/Vercel/Render）的 URL + /webhook
-3. 啟用 Webhook
-
-## �� 六、使用限制與注意事項
-
-1. **Render 使用限制**
-
-   - 應用程式會在 15 分鐘無請求後自動休眠
-   - 首次請求可能需要較長回應時間
-   - 建議使用固定時間的排程任務（如每月 ETF 分析）在活躍時段執行
-
-2. **API 使用限制**
-
-   - 實作快取機制
-   - 限制使用者請求頻率
-   - 監控 API 使用量
-
-3. **推播限制**
-   - 僅在每月 ETF 分析時使用 push_message
-   - 其他情況一律使用 reply_message
-   - 提供使用者主動查詢選項
-
-## 🔮 七、未來優化方向
-
-- 導入情緒分析，分析新聞與社群輿情
-- 開發回測系統，驗證投資策略表現
-- 提供更詳細的統計數據與使用者行為分析
-- 支援 RAG 架構提升知識管理與回答準確性
-
-## 🚩 八、結語
-
-本機器人以免費資源搭建，提供個人與小群體的投資決策輔助工具，兼具易用性、實用性和擴充性。在使用過程中，請注意各項免費服務的限制，並適時進行優化與調整。
-
-歡迎使用 AI 協作工具（如 Cursor）繼續維護與優化此專案！
-
-# LINE Bot 應用程序
-
-這是一個基於 Python 的 LINE Bot 應用程序，使用 Flask 框架開發。
+這是一個基於 LINE Messaging API 的投資機器人，提供即時股票資訊查詢、分析與投資建議。
 
 ## 功能特點
 
-- 接收並處理 LINE 消息
-- 支持文本消息回覆
-- 可擴展的消息處理機制
+### 1. 股票查詢與分析
 
-## 本地開發
+- 即時股價查詢：輸入「查詢 2330」可查詢台積電即時股價
+- 股票基本面分析：輸入「分析 2330」可獲取台積電基本面分析
+- 同類股比較：輸入「比較 2330 2303」可比較台積電和聯電的表現
+- 除權息分析：輸入「除權息 2330」可查詢台積電的除權息資訊
+
+### 2. ETF 分析
+
+- ETF 成分股分析：輸入「ETF 分析 0050」可查詢元大台灣 50 的成分股分析
+- 重疊度分析：每月 7 日和 14 日自動推送熱門 ETF 的重疊成分股分析
+
+### 3. 台指期資訊
+
+- 即時期貨行情：輸入「台指期」可查詢台指期即時行情
+
+### 4. AI 投資顧問
+
+- 投資諮詢：直接輸入您的投資問題，例如「台積電現在適合買嗎？」
+- 一般諮詢：也可以詢問非投資相關的問題，機器人會盡力回答
+
+## 部署方式
+
+### Render 部署
+
+1. 在 Render 創建新的 Web Service
+2. 連接 GitHub 倉庫
+3. 設定環境變數：
+   - LINE_CHANNEL_ACCESS_TOKEN
+   - LINE_CHANNEL_SECRET
+   - GEMINI_API_KEY
+   - DATABASE_URL
+4. 設定 Build Command: `pip install -r requirements.txt`
+5. 設定 Start Command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
+
+### 防止機器睡眠
+
+使用 Render 的 Cron Jobs 功能，設定每小時執行一次健康檢查：
+
+```bash
+curl -X GET https://your-app-name.onrender.com/health
+```
+
+## 環境變數設定
+
+```env
+LINE_CHANNEL_ACCESS_TOKEN=你的LINE Channel Access Token
+LINE_CHANNEL_SECRET=你的LINE Channel Secret
+GEMINI_API_KEY=你的Gemini API Key
+DATABASE_URL=你的資料庫連接字串
+```
+
+## 開發環境設定
 
 1. 克隆倉庫
+2. 安裝依賴：`pip install -r requirements.txt`
+3. 設定環境變數
+4. 運行測試：`python test_functions.py`
 
-```bash
-git clone [repository-url]
-cd line-bot
-```
+## 使用方式
 
-2. 安裝依賴
+1. 加入 LINE 好友
+2. 發送以下指令：
+   - 查詢股票：`查詢 2330`
+   - 分析股票：`分析 2330`
+   - ETF 分析：`ETF分析 0050`
+   - 除權息查詢：`除權息 2330`
+   - 同類股比較：`比較 2330 2303`
+   - 台指期查詢：`台指期`
+   - 投資諮詢：直接輸入您的投資問題
+   - 一般諮詢：直接輸入您的問題
 
-```bash
-pip install -r requirements.txt
-```
+## 技術架構
 
-3. 設置環境變量
+- FastAPI：後端框架
+- LINE Messaging API：訊息處理
+- Gemini API：AI 對話
+- PostgreSQL：資料庫
+- APScheduler：定時任務
 
-```bash
-export LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token
-export LINE_CHANNEL_SECRET=your_channel_secret
-```
+## 貢獻指南
 
-4. 運行應用
+歡迎提交 Pull Request 或提出 Issue。
 
-```bash
-python app.py
-```
+## 授權
 
-## 部署到 fly.io
-
-1. 安裝 flyctl
-
-```bash
-curl -L https://fly.io/install.sh | sh
-```
-
-2. 登錄 fly.io
-
-```bash
-flyctl auth login
-```
-
-3. 設置環境變量
-
-```bash
-flyctl secrets set LINE_CHANNEL_ACCESS_TOKEN=your_channel_access_token
-flyctl secrets set LINE_CHANNEL_SECRET=your_channel_secret
-```
-
-4. 部署應用
-
-```bash
-flyctl deploy
-```
-
-5. 查看應用狀態
-
-```bash
-flyctl status
-```
-
-## 環境變量
-
-- `LINE_CHANNEL_ACCESS_TOKEN`: LINE 頻道的訪問令牌
-- `LINE_CHANNEL_SECRET`: LINE 頻道的密鑰
-- `PORT`: 應用程序監聽的端口（默認：8080）
-
-## 注意事項
-
-- 確保在部署前設置所有必要的環境變量
-- 建議使用 HTTPS 進行安全通信
-- 定期更新依賴包以確保安全性
+MIT License

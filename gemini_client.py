@@ -4,6 +4,7 @@ from typing import Optional
 import google.generativeai as genai
 from dotenv import load_dotenv
 import time
+from datetime import datetime
 
 # 載入環境變數
 load_dotenv()
@@ -25,40 +26,27 @@ TOP_K = int(os.getenv('GEMINI_TOP_K', '40'))
 model = genai.GenerativeModel(MODEL_NAME)
 
 # 系統提示詞
-SYSTEM_PROMPT = """我是一個專業的投資顧問助手，我叫做小智。
+SYSTEM_PROMPT = """你是一個專業的投資顧問助手，名字是小智。
 
-我的特點是：
-1. 溫暖親切 - 用友善的語氣與用戶對話
-2. 專業細心 - 提供準確的投資建議和分析
-3. 簡單易懂 - 用淺顯的方式解釋複雜的概念
-4. 適度幽默 - 在適當時機加入輕鬆的互動
-5. 謹慎負責 - 提醒投資風險，不誇大或誤導
+你的風格：
+- 語氣親切，像朋友一樣溝通
+- 分析準確，建議具體可行
+- 解說簡單易懂，不用專業術語堆砌
+- 適度加入輕鬆幽默
+- 強調風險意識，不誇大績效
 
-專長領域：
-- 股票分析與建議
-- ETF 投資策略
-- 台指期貨分析
-- 市場趨勢解讀
-- 基本面技術面分析
-- 投資組合規劃
-- 風險控管建議
-- 總體經濟分析
-- 產業趨勢分析
+你擅長的領域：
+- 股票與 ETF 分析與建議
+- 台指期操作策略
+- 市場趨勢與總體經濟解析
+- 產業基本面與技術面分析
+- 投資組合與風險控管規劃
 
-溝通方式：
-- 使用純文字回應，不使用特殊符號
-- 條列重點資訊方便閱讀
-- 給予具體可行的建議
-- 主動關心用戶需求
-
-其他話題處理方式：
-雖然投資理財是我的專長，但我也樂於討論其他話題。我會：
-1. 誠實表明某些領域可能不是我的專長
-2. 盡可能提供有幫助的回答
-3. 在適當時機引導回投資相關話題
-4. 保持開放和友善的態度
-
-讓我們開始對話吧！"""
+溝通原則：
+- 回應使用純文字，禁止 Markdown、符號、表情符號
+- 回答要重點明確，不要冗長
+- 遇到不熟悉的主題，誠實告知並盡力協助
+- 偶爾主動提醒投資風險"""
 
 
 class GeminiClient:
@@ -67,19 +55,25 @@ class GeminiClient:
         self.chat.send_message(SYSTEM_PROMPT)
         self.last_request_time = {}  # 用於速率限制
         self.rate_limit = 5  # 5 秒內只能發送一次請求
+        self.cache = {}  # 用於快取
+        self.cache_timeout = 60  # 快取超時時間（秒）
 
-    def generate_response(self, user_message: str, user_id: str) -> str:
+    def generate_response(self, prompt: str, user_id: str = None) -> str:
         """
         生成回應
-
-        Args:
-            user_message: 使用者訊息
-            user_id: 使用者 ID
-
-        Returns:
-            生成的回應
+        :param prompt: 提示詞
+        :param user_id: 使用者 ID
+        :return: 生成的回應
         """
         try:
+            # 檢查快取
+            if user_id:
+                cache_key = f"response_{user_id}_{hash(prompt)}"
+                if cache_key in self.cache:
+                    cache_data = self.cache[cache_key]
+                    if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
+                        return cache_data['data']
+
             # 檢查速率限制
             current_time = time.time()
             if user_id in self.last_request_time:
@@ -92,23 +86,32 @@ class GeminiClient:
             self.last_request_time[user_id] = current_time
 
             # 檢查是否為投資相關問題
-            if not self._is_investment_related(user_message):
+            if not self._is_investment_related(prompt):
                 return "抱歉，我是一個投資顧問機器人，只能回答投資相關的問題。如果您有投資相關的問題，我很樂意為您解答。"
 
             # 生成回應
             response = self.chat.send_message(
-                user_message,
+                prompt,
                 generation_config=genai.types.GenerationConfig(
                     temperature=TEMPERATURE,
                     top_p=TOP_P,
                     top_k=TOP_K
                 )
             )
-            return response.text
+            result = response.text
+
+            # 更新快取
+            if user_id:
+                self.cache[cache_key] = {
+                    'data': result,
+                    'timestamp': datetime.now()
+                }
+
+            return result
 
         except Exception as e:
             logger.error(f"生成回應時發生錯誤：{str(e)}")
-            return "抱歉，生成回應時發生錯誤，請稍後再試。"
+            return f"抱歉，生成回應時發生錯誤：{str(e)}"
 
     def _is_investment_related(self, message: str) -> bool:
         """
