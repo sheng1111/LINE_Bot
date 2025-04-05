@@ -483,7 +483,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
         # 1. 處理簡單問候語
         greetings = ['hi', 'hello', '你好', '哈囉', '嗨']
         if message.lower() in greetings or any(greeting in message.lower() for greeting in greetings):
-            response = "你好！我是一個 AI 助手，很高兴为您服务！我擅长投资理财相关的咨询，但也可以回答其他问题。"
+            response = "你好！我是一個 AI 助手，很高興為您服務！我擅長投資理財相關的諮詢，但也可以回答其他問題。"
             await line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=reply_token,
@@ -497,13 +497,13 @@ async def process_message(user_id, message, reply_token, max_retries=3):
         請分析以下用戶輸入的意圖，僅返回對應的指令和參數，不需要其他解釋：
         {message}
 
-        支持的指令類型：
-        1. STOCK_QUERY - 查詢股票信息（參數：股票代碼）
+        支援的指令類型：
+        1. STOCK_QUERY - 查詢股票資訊（參數：股票代碼）
         2. MARKET_NEWS - 查看市場新聞（無參數）
         3. MARKET_RANKING - 查看市場排行（無參數）
         4. TECHNICAL_ANALYSIS - 技術分析（參數：股票代碼）
         5. CHIP_ANALYSIS - 籌碼分析（參數：股票代碼）
-        6. HISTORY_QUERY - 歷史數據查詢（參數：股票代碼）
+        6. HISTORY_QUERY - 歷史資料查詢（參數：股票代碼）
         7. PORTFOLIO - 投資組合（無參數）
         8. PRICE_ALERT - 設定提醒（參數：股票代碼 價格）
         9. GENERAL_QUERY - 一般問答（無參數）
@@ -543,17 +543,17 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                 # 處理股票查詢
                 stock_info = get_stock_info(params)
                 if stock_info:
-                    # 使用第二個 LLM 分析股票數據
+                    # 使用第二個 LLM 分析股票資料
                     analysis_prompt = f"""
-                    請分析以下股票數據並給出專業的見解：
+                    請分析以下股票資料並給出專業的見解：
                     {format_stock_info(stock_info)}
 
-                    請用通俗易懂的語言總結重要信息，並給出簡短的分析。
+                    請用通俗易懂的語言總結重要資訊，並給出簡短的分析。
                     """
                     analysis = gemini.generate_response(analysis_prompt)
                     response = f"{format_stock_info(stock_info)}\n\n分析：\n{analysis}"
                 else:
-                    response = "抱歉，無法獲取該股票信息。"
+                    response = "抱歉，無法獲取該股票資訊。"
 
             elif command == 'MARKET_NEWS':
                 news = twse_api.get_market_news()
@@ -575,7 +575,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                         message += f"{i}. {stock['code']} {stock['name']} {stock['volume']:,}\n"
                     response = message
                 else:
-                    response = "無法獲取市場排行信息。"
+                    response = "無法獲取市場排行資訊。"
 
             elif command == 'GENERAL_QUERY':
                 # 使用 LLM 處理一般問答

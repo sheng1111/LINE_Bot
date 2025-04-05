@@ -155,3 +155,7 @@ class TWSEAPI:
         rsi = 100 - (100 / (1 + rs))
 
         return rsi.tolist()
+
+
+# 建立實例並匯出
+twse_api = TWSEAPI()
