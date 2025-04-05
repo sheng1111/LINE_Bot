@@ -28,6 +28,7 @@ from apscheduler.triggers.cron import CronTrigger
 from futures_info import get_futures_info, format_futures_info
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import re
 
 # 載入環境變數
 load_dotenv()
@@ -440,6 +441,35 @@ async def send_etf_overlap_analysis(max_retries=3):
         logger.error(f"執行 ETF 重疊分析時發生錯誤: {str(e)}", exc_info=True)
 
 
+def remove_markdown(text: str) -> str:
+    """
+    移除文字中的 markdown 格式
+    :param text: 原始文字
+    :return: 移除 markdown 格式後的文字
+    """
+    # 移除標題
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    # 移除粗體和斜體
+    text = re.sub(r'\*\*|\*|__|_', '', text)
+    # 移除連結
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    # 移除圖片
+    text = re.sub(r'!\[([^\]]*)\]\([^\)]+\)', r'\1', text)
+    # 移除程式碼區塊
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    # 移除行內程式碼
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    # 移除引用
+    text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
+    # 移除列表符號
+    text = re.sub(r'^[\s-]*[-*+]\s+', '', text, flags=re.MULTILINE)
+    # 移除表格
+    text = re.sub(r'\|.*\|', '', text)
+    # 移除多餘的空白行
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    return text.strip()
+
+
 async def process_message(user_id, message, reply_token, max_retries=3):
     """處理用戶訊息"""
     try:
@@ -448,6 +478,43 @@ async def process_message(user_id, message, reply_token, max_retries=3):
 
         # 記錄查詢
         log_query(user_id, message)
+
+        # 檢查是否為純數字（可能是股票代碼）
+        if message.isdigit() and (len(message) == 4 or len(message) == 5):
+            # 直接查詢股票資訊
+            stock_info = get_stock_info(message)
+            response = format_stock_info(stock_info)
+
+            # 使用 LLM 提供簡短建議，並參考即時股價資訊
+            prompt = f"""
+            你是一個專業的投資顧問。以下是股票 {message} 的即時資訊：
+
+            {response}
+
+            請根據以上即時資訊，提供一個簡短的投資建議。
+            回答時要：
+            1. 根據即時股價、漲跌幅、成交量等數據進行分析
+            2. 提供簡要建議
+            3. 提醒投資風險
+            4. 回答要簡短，不要超過 100 字
+            5. 不要使用任何格式符號（如 *、#、` 等）
+
+            請用繁體中文回答，語氣要專業且友善。
+            """
+            advice = gemini.generate_response(prompt)
+            # 移除可能的 markdown 格式
+            advice = remove_markdown(advice)
+
+            # 合併股票資訊和建議
+            full_response = f"{response}\n\n📊 投資建議：\n{advice}"
+
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=full_response)]
+                )
+            )
+            return
 
         # 檢查是否為投資相關問題
         if not is_investment_related(message):
@@ -461,10 +528,14 @@ async def process_message(user_id, message, reply_token, max_retries=3):
             1. 保持禮貌和專業
             2. 提供有用的資訊
             3. 如果問題超出你的知識範圍，請禮貌地告知
+            4. 回答要簡短，不要超過 200 字
+            5. 不要使用任何格式符號（如 *、#、` 等）
 
-            請用繁體中文回答(禁止使用markdown)，語氣要友善且專業。
+            請用繁體中文回答，語氣要友善且專業。
             """
             response = gemini.generate_response(prompt)
+            # 移除可能的 markdown 格式
+            response = remove_markdown(response)
             await line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=reply_token,
@@ -473,119 +544,96 @@ async def process_message(user_id, message, reply_token, max_retries=3):
             )
             return
 
-        # 處理股票查詢
-        if message.startswith('查詢 '):
-            stock_code = message.split(' ')[1]
+        # 處理股票查詢 - 更靈活的匹配方式
+        stock_code = None
+        if message.startswith('查詢'):
+            # 處理 "查詢2330" 或 "查詢 2330" 的情況
+            parts = message.split()
+            if len(parts) > 1:
+                stock_code = parts[1]
+            else:
+                # 如果沒有空格，嘗試從字串中提取數字
+                import re
+                numbers = re.findall(r'\d+', message)
+                if numbers:
+                    stock_code = numbers[0]
+        elif any(char.isdigit() for char in message):
+            # 檢查訊息中是否包含數字（可能是股票代碼）
+            import re
+            numbers = re.findall(r'\d+', message)
+            if numbers and (len(numbers[0]) == 4 or len(numbers[0]) == 5):
+                stock_code = numbers[0]
+
+        if stock_code:
             stock_info = get_stock_info(stock_code)
             response = format_stock_info(stock_info)
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=response)]
+                )
+            )
+            return
 
-        # 處理股票分析
-        elif message.startswith('分析 '):
-            stock_code = message.split(' ')[1]
-            analysis = analyzer.analyze_stock(stock_code)
-            response = f"📊 {stock_code} 分析報告：\n\n{analysis}"
+        # 處理股票分析相關問題
+        if any(char.isdigit() for char in message) and ('買' in message or '賣' in message or '分析' in message):
+            # 提取股票代碼
+            import re
+            numbers = re.findall(r'\d+', message)
+            if numbers and (len(numbers[0]) == 4 or len(numbers[0]) == 5):
+                stock_code = numbers[0]
+                # 獲取即時股票資訊
+                stock_info = get_stock_info(stock_code)
+                stock_info_text = format_stock_info(stock_info)
 
-        # 處理ETF分析
-        elif message.startswith('ETF分析 '):
-            etf_code = message.split(' ')[1]
-            analysis = etf_analyzer.analyze_etf(etf_code)
-            response = f"📊 {etf_code} ETF 分析報告：\n\n{analysis}"
-
-        # 處理除權息查詢
-        elif message.startswith('除權息 '):
-            stock_code = message.split(' ')[1]
-            analysis = dividend_analyzer.analyze_dividend(stock_code)
-            response = f"📅 {stock_code} 除權息分析：\n\n{analysis}"
-
-        # 處理同類股比較
-        elif message.startswith('比較 '):
-            stock_codes = message.split(' ')[1:]
-            comparison = comparator.compare_stocks(stock_codes)
-            response = f"📊 同類股比較分析：\n\n{comparison}"
-
-        # 處理台指期查詢
-        elif message == '台指期':
-            futures_info = get_futures_info()
-            response = format_futures_info(futures_info)
-
-        # 其他投資相關問題
-        else:
-            # 先檢查是否包含股票代碼
-            stock_codes = []
-            words = message.split()
-            for word in words:
-                if word.isdigit() and (len(word) == 4 or len(word) == 5):
-                    stock_codes.append(word)
-
-            if stock_codes:
-                # 如果有股票代碼，先獲取即時資訊
-                stock_infos = []
-                for code in stock_codes:
-                    for attempt in range(max_retries):
-                        try:
-                            info = get_stock_info(code)
-                            if info:
-                                stock_infos.append(format_stock_info(info))
-                                break
-                            else:
-                                if attempt == max_retries - 1:
-                                    stock_infos.append(
-                                        f"無法獲取股票 {code} 的即時資訊，請確認股票代碼是否正確。")
-                        except Exception as e:
-                            logger.warning(
-                                f"獲取股票 {code} 資訊失敗 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
-                            if attempt == max_retries - 1:
-                                logger.error(f"獲取股票 {code} 資訊最終失敗: {str(e)}")
-                                stock_infos.append(
-                                    f"無法獲取股票 {code} 的即時資訊，系統可能暫時無回應，請稍後再試。")
-
-                # 將即時資訊加入 prompt
-                real_time_info = "\n\n".join(stock_infos)
+                # 使用 LLM 分析股票，並參考即時資訊
                 prompt = f"""
-                你是一個專業的投資顧問。以下是即時股票資訊：
+                你是一個專業的投資顧問。以下是股票 {stock_code} 的即時資訊：
 
-                {real_time_info}
+                {stock_info_text}
 
                 使用者問了以下問題：
                 {message}
 
-                請根據即時資訊，用專業且易懂的方式回答使用者的問題。
+                請根據以上即時資訊，分析該股票的投資建議。
                 回答時要：
-                1. 先引用即時數據
-                2. 分析這些數據的意義
-                3. 提供專業的投資建議
-                4. 提醒投資風險
+                1. 根據即時股價、漲跌幅、成交量等數據進行分析
+                2. 提供具體的投資建議
+                3. 提醒投資風險
+                4. 回答要簡短，不要超過 200 字
+                5. 不要使用任何格式符號（如 *、#、` 等）
 
-                請用繁體中文回答(禁止使用markdown)，語氣要專業且友善。
+                請用繁體中文回答，語氣要專業且友善。
                 """
-            else:
-                # 如果沒有股票代碼，直接回答投資相關問題
-                prompt = f"""
-                你是一個專業的投資顧問。使用者問了以下問題：
-                {message}
+                response = gemini.generate_response(prompt)
+                # 移除可能的 markdown 格式
+                response = remove_markdown(response)
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=reply_token,
+                        messages=[TextMessage(text=response)]
+                    )
+                )
+                return
 
-                請用專業且易懂的方式回答。
-                回答時要：
-                1. 提供專業的投資建議
-                2. 分析可能的風險
-                3. 給出具體的建議
+        # 其他投資相關問題
+        prompt = f"""
+        你是一個專業的投資顧問。使用者問了以下問題：
+        {message}
 
-                請用繁體中文回答(禁止使用markdown)，語氣要專業且友善。
-                """
+        請用專業且易懂的方式回答。
+        回答時要：
+        1. 提供專業的投資建議
+        2. 分析可能的風險
+        3. 給出具體的建議
+        4. 回答要簡短，不要超過 200 字
+        5. 不要使用任何格式符號（如 *、#、` 等）
 
-            # 生成回應
-            for attempt in range(max_retries):
-                try:
-                    response = gemini.generate_response(prompt)
-                    break
-                except Exception as e:
-                    logger.warning(
-                        f"生成回應失敗 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
-                    if attempt == max_retries - 1:
-                        logger.error(f"生成回應最終失敗: {str(e)}")
-                        response = "抱歉，目前無法生成回應，請稍後再試。"
-
-        # 發送回應
+        請用繁體中文回答，語氣要專業且友善。
+        """
+        response = gemini.generate_response(prompt)
+        # 移除可能的 markdown 格式
+        response = remove_markdown(response)
         await line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=reply_token,
