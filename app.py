@@ -464,7 +464,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
 
             請用繁體中文回答(禁止使用markdown)，語氣要友善且專業。
             """
-            response = await gemini.generate_response(prompt)
+            response = gemini.generate_response(prompt)
             await line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=reply_token,
@@ -576,7 +576,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
             # 生成回應
             for attempt in range(max_retries):
                 try:
-                    response = await gemini.generate_response(prompt)
+                    response = gemini.generate_response(prompt)
                     break
                 except Exception as e:
                     logger.warning(
