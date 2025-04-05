@@ -479,15 +479,28 @@ async def process_message(user_id, message, reply_token, max_retries=3):
         # 記錄查詢
         log_query(user_id, message)
 
+        # 1. 首先處理股票查詢 - 更靈活的匹配方式
+        stock_code = None
         # 檢查是否為純數字（可能是股票代碼）
         if message.isdigit() and (len(message) == 4 or len(message) == 5):
-            # 直接查詢股票資訊
-            stock_info = get_stock_info(message)
+            stock_code = message
+        # 處理 "查詢2330" 或 "查詢 2330" 的情況
+        elif message.startswith('查詢'):
+            parts = message.split('查詢')
+            if len(parts) > 1:
+                # 提取數字
+                numbers = re.findall(r'\d+', parts[1])
+                if numbers and (len(numbers[0]) == 4 or len(numbers[0]) == 5):
+                    stock_code = numbers[0]
+
+        if stock_code:
+            # 獲取股票資訊
+            stock_info = get_stock_info(stock_code)
             response = format_stock_info(stock_info)
 
             # 使用 LLM 提供簡短建議，並參考即時股價資訊
             prompt = f"""
-            你是一個專業的投資顧問。以下是股票 {message} 的即時資訊：
+            你是一個專業的投資顧問。以下是股票 {stock_code} 的即時資訊：
 
             {response}
 
@@ -516,69 +529,9 @@ async def process_message(user_id, message, reply_token, max_retries=3):
             )
             return
 
-        # 檢查是否為投資相關問題
-        if not is_investment_related(message):
-            # 非投資相關問題，直接使用 AI 回答
-            prompt = f"""
-            你是一個友善的 AI 助手。使用者問了以下問題：
-            {message}
-
-            請用專業且友善的方式回答。
-            回答時要：
-            1. 保持禮貌和專業
-            2. 提供有用的資訊
-            3. 如果問題超出你的知識範圍，請禮貌地告知
-            4. 回答要簡短，不要超過 200 字
-            5. 不要使用任何格式符號（如 *、#、` 等）
-
-            請用繁體中文回答，語氣要友善且專業。
-            """
-            response = gemini.generate_response(prompt)
-            # 移除可能的 markdown 格式
-            response = remove_markdown(response)
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[TextMessage(text=response)]
-                )
-            )
-            return
-
-        # 處理股票查詢 - 更靈活的匹配方式
-        stock_code = None
-        if message.startswith('查詢'):
-            # 處理 "查詢2330" 或 "查詢 2330" 的情況
-            parts = message.split()
-            if len(parts) > 1:
-                stock_code = parts[1]
-            else:
-                # 如果沒有空格，嘗試從字串中提取數字
-                import re
-                numbers = re.findall(r'\d+', message)
-                if numbers:
-                    stock_code = numbers[0]
-        elif any(char.isdigit() for char in message):
-            # 檢查訊息中是否包含數字（可能是股票代碼）
-            import re
-            numbers = re.findall(r'\d+', message)
-            if numbers and (len(numbers[0]) == 4 or len(numbers[0]) == 5):
-                stock_code = numbers[0]
-
-        if stock_code:
-            stock_info = get_stock_info(stock_code)
-            response = format_stock_info(stock_info)
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[TextMessage(text=response)]
-                )
-            )
-            return
-
-        # 處理股票分析相關問題
+        # 2. 處理股票分析相關問題
         if any(char.isdigit() for char in message) and ('買' in message or '賣' in message or '分析' in message):
             # 提取股票代碼
-            import re
             numbers = re.findall(r'\d+', message)
             if numbers and (len(numbers[0]) == 4 or len(numbers[0]) == 5):
                 stock_code = numbers[0]
@@ -616,7 +569,35 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                 )
                 return
 
-        # 其他投資相關問題
+        # 3. 處理一般對話
+        if not is_investment_related(message):
+            # 非投資相關問題，直接使用 AI 回答
+            prompt = f"""
+            你是一個友善的 AI 助手。使用者問了以下問題：
+            {message}
+
+            請用專業且友善的方式回答。
+            回答時要：
+            1. 保持禮貌和專業
+            2. 提供有用的資訊
+            3. 如果問題超出你的知識範圍，請禮貌地告知
+            4. 回答要簡短，不要超過 200 字
+            5. 不要使用任何格式符號（如 *、#、` 等）
+
+            請用繁體中文回答，語氣要友善且專業。
+            """
+            response = gemini.generate_response(prompt)
+            # 移除可能的 markdown 格式
+            response = remove_markdown(response)
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=response)]
+                )
+            )
+            return
+
+        # 4. 其他投資相關問題
         prompt = f"""
         你是一個專業的投資顧問。使用者問了以下問題：
         {message}
