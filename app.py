@@ -165,27 +165,86 @@ async def _handle_message_async(event):
         # 顯示 Loading Animation
         await show_loading_animation(user_id)
 
-        # 處理幫助指令
-        if user_message == '/help':
+        # 使用 LLM 判斷使用者意圖
+        intent_prompt = f"""
+        請分析以下用戶輸入的意圖，並返回對應的指令和參數：
+
+        用戶輸入：{user_message}
+
+        支援的指令類型：
+        1. STOCK_QUERY - 查詢股票資訊（參數：股票代碼）
+        2. ETF_ANALYSIS - ETF 分析（參數：ETF代碼）
+        3. DIVIDEND_ANALYSIS - 除權息分析（參數：股票代碼）
+        4. PEER_COMPARISON - 同類股比較（參數：股票代碼）
+        5. FUTURES_INFO - 台指期資訊（無參數）
+        6. ETF_OVERLAP - ETF 重疊分析（參數：ETF代碼1,ETF代碼2）
+        7. MARKET_NEWS - 市場新聞（無參數）
+        8. STOCK_NEWS - 個股新聞（參數：股票代碼）
+        9. GENERAL_QUERY - 一般問答（無參數）
+
+        請根據以下規則判斷：
+        - 如果只是查詢股票現況，使用 STOCK_QUERY
+        - 如果要求分析 ETF，使用 ETF_ANALYSIS
+        - 如果要求除權息資訊，使用 DIVIDEND_ANALYSIS
+        - 如果要求比較同類股，使用 PEER_COMPARISON
+        - 如果要求台指期資訊，使用 FUTURES_INFO
+        - 如果要求 ETF 重疊分析，使用 ETF_OVERLAP
+        - 如果要求市場新聞，使用 MARKET_NEWS
+        - 如果要求個股新聞，使用 STOCK_NEWS
+        - 如果無法確定，使用 GENERAL_QUERY
+
+        請只返回如下格式：
+        COMMAND:對應指令
+        PARAMS:參數（如果有多個參數用逗號分隔）
+        """
+
+        # 獲取意圖分析結果
+        intent_result = gemini.generate_response(intent_prompt).strip()
+
+        # 解析意圖結果
+        command = None
+        params = None
+
+        for line in intent_result.split('\n'):
+            if line.startswith('COMMAND:'):
+                command = line.replace('COMMAND:', '').strip()
+            elif line.startswith('PARAMS:'):
+                params = line.replace('PARAMS:', '').strip()
+
+        # 根據意圖執行對應功能
+        if command == 'STOCK_QUERY' and params:
+            stock_info = get_stock_info(params)
             await line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text=get_help_message())]
+                    messages=[TextMessage(text=format_stock_info(stock_info))]
                 )
             )
-        # 處理股票查詢
-        elif user_message.startswith('查詢 '):
-            stock_code = user_message.split(' ')[1]
-            stock_info = get_stock_info(stock_code)
+        elif command == 'ETF_ANALYSIS' and params:
+            result = etf_analyzer.analyze_etf(params)
             await line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(
-                        text=format_stock_info(stock_info))]
+                    messages=[TextMessage(text=result)]
                 )
             )
-        # 處理台指期查詢
-        elif user_message == '台指期':
+        elif command == 'DIVIDEND_ANALYSIS' and params:
+            result = dividend_analyzer.analyze_dividend(params)
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=result)]
+                )
+            )
+        elif command == 'PEER_COMPARISON' and params:
+            result = comparator.compare_stocks(params)
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=result)]
+                )
+            )
+        elif command == 'FUTURES_INFO':
             futures_info = get_futures_info()
             await line_bot_api.reply_message(
                 ReplyMessageRequest(
@@ -194,9 +253,56 @@ async def _handle_message_async(event):
                         text=format_futures_info(futures_info))]
                 )
             )
-        # 處理其他訊息
+        elif command == 'ETF_OVERLAP' and params:
+            etf_codes = params.split(',')
+            analysis = await analyze_etf_overlap(etf_codes)
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=analysis)]
+                )
+            )
+        elif command == 'MARKET_NEWS':
+            news = twse_api.get_market_news()
+            if news:
+                response = "📰 最新市場新聞：\n\n"
+                for item in news[:5]:  # 只顯示最新的 5 則新聞
+                    response += f"📌 {item['title']}\n"
+                    response += f"🔗 {item['link']}\n"
+                    response += f"⏰ {item['pubDate']}\n\n"
+            else:
+                response = "目前沒有最新市場新聞。"
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=response)]
+                )
+            )
+        elif command == 'STOCK_NEWS' and params:
+            news = twse_api.get_stock_news(params)
+            if news:
+                response = f"📰 {params} 最新新聞：\n\n"
+                for item in news[:5]:  # 只顯示最新的 5 則新聞
+                    response += f"📌 {item['title']}\n"
+                    response += f"🔗 {item['link']}\n"
+                    response += f"⏰ {item['pubDate']}\n\n"
+            else:
+                response = f"目前沒有 {params} 的最新新聞。"
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=response)]
+                )
+            )
         else:
-            await process_message(user_id, user_message, event.reply_token)
+            # 使用 LLM 處理一般問答
+            response = await process_message(user_id, user_message, event.reply_token)
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=response)]
+                )
+            )
     except Exception as e:
         logger.error(f"處理訊息時發生錯誤：{str(e)}", exc_info=True)
         try:

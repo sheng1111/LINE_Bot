@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from database import db
 import time
+import json
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from stock_info import get_stock_info, format_stock_info
@@ -42,7 +43,7 @@ class StockAnalyzer:
 
     def get_stock_info(self, stock_code: str) -> Dict[str, Any]:
         """
-        取得股票基本資訊，主要使用證交所 API
+        取得股票基本資訊，使用證交所 API
         """
         try:
             # 檢查快取
@@ -52,23 +53,45 @@ class StockAnalyzer:
                 if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
                     return cache_data['data']
 
-            # 使用證交所 API
-            stock_info = get_stock_info(stock_code)
+            # 組合API需要的股票清單字串
+            stock_list = f'tse_{stock_code}.tw'
 
-            if stock_info is None:
-                logger.error(f"無法從證交所獲取股票 {stock_code} 的資訊")
-                return {
-                    'error': f'無法獲取股票 {stock_code} 的資訊，請稍後再試',
-                    'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
+            # 組合完整的URL
+            query_url = f'http://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={stock_list}'
+
+            # 呼叫股票資訊API
+            response = requests.get(query_url)
+
+            if response.status_code != 200:
+                raise Exception('取得股票資訊失敗')
+
+            data = json.loads(response.text)
+
+            if not data.get('msgArray'):
+                raise Exception('無股票資料')
+
+            stock_data = data['msgArray'][0]
+
+            result = {
+                'code': stock_data['c'],
+                'name': stock_data['n'],
+                'price': float(stock_data['z']) if stock_data['z'] else 0,
+                'change': float(stock_data['z']) - float(stock_data['y']) if stock_data['z'] and stock_data['y'] else 0,
+                'change_percent': ((float(stock_data['z']) - float(stock_data['y'])) / float(stock_data['y']) * 100) if stock_data['z'] and stock_data['y'] else 0,
+                'volume': int(stock_data['v']) if stock_data['v'] else 0,
+                'high': float(stock_data['h']) if stock_data['h'] else 0,
+                'low': float(stock_data['l']) if stock_data['l'] else 0,
+                'open': float(stock_data['o']) if stock_data['o'] else 0,
+                'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
 
             # 更新快取
             self.cache[cache_key] = {
-                'data': stock_info,
+                'data': result,
                 'timestamp': datetime.now()
             }
 
-            return stock_info
+            return result
         except Exception as e:
             logger.error(f"獲取股票資訊時發生錯誤：{str(e)}")
             return {
@@ -266,7 +289,7 @@ class StockAnalyzer:
             # 生成分析結果
             result = {
                 'stock_code': stock_code,
-                'current_price': stock_info['current_price'],
+                'current_price': stock_info['price'],
                 'change': stock_info['change'],
                 'change_percent': stock_info['change_percent'],
                 'volume': stock_info['volume'],

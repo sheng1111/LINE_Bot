@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Union
 import time
+import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -108,13 +109,55 @@ class TWSEAPI:
 
     def get_market_news(self) -> Optional[Dict]:
         """獲取市場新聞"""
-        return self._make_request("news/newsList")
+        try:
+            # 使用證交所的新聞 RSS API
+            endpoint = "https://www.twse.com.tw/rss/news"
+            response = requests.get(endpoint, timeout=10)
+
+            if response.status_code != 200:
+                raise Exception('取得新聞失敗')
+
+            # 解析 RSS 格式的新聞
+            news_data = []
+            root = ET.fromstring(response.content)
+
+            for item in root.findall('.//item'):
+                news_data.append({
+                    'title': item.find('title').text,
+                    'link': item.find('link').text,
+                    'pubDate': item.find('pubDate').text
+                })
+
+            return news_data
+        except Exception as e:
+            logger.error(f"獲取新聞時發生錯誤：{str(e)}")
+            return None
 
     def get_stock_news(self, stock_code: str) -> Optional[Dict]:
         """獲取個股新聞"""
-        endpoint = f"opendata/t187ap04_L"
-        params = {'stockNo': stock_code}
-        return self._make_request(endpoint, params)
+        try:
+            # 使用證交所的個股新聞 API
+            endpoint = f"https://www.twse.com.tw/rss/news/{stock_code}"
+            response = requests.get(endpoint, timeout=10)
+
+            if response.status_code != 200:
+                raise Exception('取得個股新聞失敗')
+
+            # 解析 RSS 格式的新聞
+            news_data = []
+            root = ET.fromstring(response.content)
+
+            for item in root.findall('.//item'):
+                news_data.append({
+                    'title': item.find('title').text,
+                    'link': item.find('link').text,
+                    'pubDate': item.find('pubDate').text
+                })
+
+            return news_data
+        except Exception as e:
+            logger.error(f"獲取個股新聞時發生錯誤：{str(e)}")
+            return None
 
     def get_etf_holdings(self, etf_code: str) -> Optional[List[str]]:
         """獲取 ETF 成分股"""
