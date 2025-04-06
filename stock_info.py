@@ -83,8 +83,16 @@ def get_stock_info(stock_code: str) -> dict:
             fundamental_data = twse_api.get_stock_fundamental(stock_code)
             if isinstance(fundamental_data, dict):
                 fundamental = fundamental_data
+            elif isinstance(fundamental_data, list) and fundamental_data:
+                # 如果是列表，轉換為字典
+                fundamental = {}
+                for item in fundamental_data:
+                    if isinstance(item, dict):
+                        for key, value in item.items():
+                            fundamental[key] = value
+                        break  # 只使用第一個項目
             else:
-                logger.warning(f"基本面資料不是字典類型: {type(fundamental_data).__name__}")
+                logger.warning(f"基本面資料格式不正確: {type(fundamental_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取基本面資料失敗: {str(e)}")
 
@@ -103,8 +111,23 @@ def get_stock_info(stock_code: str) -> dict:
             institutional_data = twse_api.get_institutional_investors(stock_code)
             if isinstance(institutional_data, dict):
                 institutional = institutional_data
+            elif isinstance(institutional_data, list) and institutional_data:
+                # 如果是列表，轉換為字典
+                institutional = {}
+                for item in institutional_data:
+                    if isinstance(item, dict) and 'stock_code' in item and item.get('stock_code') == stock_code:
+                        for key, value in item.items():
+                            institutional[key] = value
+                        break  # 找到目標股票後停止
+                if not institutional:
+                    # 如果沒有找到目標股票，使用第一個項目
+                    for item in institutional_data:
+                        if isinstance(item, dict):
+                            for key, value in item.items():
+                                institutional[key] = value
+                            break
             else:
-                logger.warning(f"法人買賣超不是字典類型: {type(institutional_data).__name__}")
+                logger.warning(f"法人買賣超格式不正確: {type(institutional_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取法人買賣超失敗: {str(e)}")
 
@@ -113,8 +136,23 @@ def get_stock_info(stock_code: str) -> dict:
             margin_data = twse_api.get_margin_trading(stock_code)
             if isinstance(margin_data, dict):
                 margin = margin_data
+            elif isinstance(margin_data, list) and margin_data:
+                # 如果是列表，轉換為字典
+                margin = {}
+                for item in margin_data:
+                    if isinstance(item, dict) and 'stock_code' in item and item.get('stock_code') == stock_code:
+                        for key, value in item.items():
+                            margin[key] = value
+                        break  # 找到目標股票後停止
+                if not margin:
+                    # 如果沒有找到目標股票，使用第一個項目
+                    for item in margin_data:
+                        if isinstance(item, dict):
+                            for key, value in item.items():
+                                margin[key] = value
+                            break
             else:
-                logger.warning(f"融資融券不是字典類型: {type(margin_data).__name__}")
+                logger.warning(f"融資融券格式不正確: {type(margin_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取融資融券失敗: {str(e)}")
 

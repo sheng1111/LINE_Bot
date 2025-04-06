@@ -73,25 +73,53 @@ class StockAnalyzer:
             stock_data = data['msgArray'][0]
 
             # 確保所有必要的欄位都存在且有效
-            if not all(key in stock_data for key in ['c', 'n', 'z', 'y', 'v', 'h', 'l', 'o']):
-                raise Exception('股票資料不完整')
+            required_fields = ['c', 'n', 'z', 'y', 'v', 'h', 'l', 'o']
+            for field in required_fields:
+                if field not in stock_data:
+                    logger.warning(f"股票資料缺少必要欄位: {field}")
+                    stock_data[field] = '0'  # 設置預設值
+                elif stock_data[field] == '-' or stock_data[field] == '':
+                    stock_data[field] = '0'  # 處理空值或特殊字符
 
             # 安全地轉換數值
             try:
-                price = float(stock_data['z']) if stock_data['z'] else 0
-                prev_price = float(stock_data['y']) if stock_data['y'] else price
-                volume = int(stock_data['v']) if stock_data['v'] else 0
-                high = float(stock_data['h']) if stock_data['h'] else price
-                low = float(stock_data['l']) if stock_data['l'] else price
-                open_price = float(stock_data['o']) if stock_data['o'] else price
+                # 安全轉換函數
+                def safe_convert(value, convert_func, default=0):
+                    if not value or value == '-':
+                        return default
+                    try:
+                        return convert_func(value)
+                    except (ValueError, TypeError):
+                        return default
+                
+                price = safe_convert(stock_data.get('z'), float)
+                prev_price = safe_convert(stock_data.get('y'), float, price)
+                volume = safe_convert(stock_data.get('v'), int)
+                high = safe_convert(stock_data.get('h'), float, price)
+                low = safe_convert(stock_data.get('l'), float, price)
+                open_price = safe_convert(stock_data.get('o'), float, price)
 
                 # 計算漲跌幅
                 change = price - prev_price
                 change_percent = (change / prev_price * 100) if prev_price > 0 else 0
 
+                # 取得交易時間
+                trade_time = stock_data.get('t', '')
+                if trade_time:
+                    # 如果有日期資訊，嘗試結合日期和時間
+                    trade_date = stock_data.get('d', datetime.now().strftime("%Y%m%d"))
+                    try:
+                        # 嘗試格式化日期時間
+                        date_obj = datetime.strptime(trade_date, "%Y%m%d")
+                        time_str = f"{date_obj.strftime('%Y-%m-%d')} {trade_time}"
+                    except ValueError:
+                        time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
                 result = {
-                    'code': stock_data['c'],
-                    'name': stock_data['n'],
+                    'code': stock_data.get('c', ''),
+                    'name': stock_data.get('n', ''),
                     'price': price,
                     'change': change,
                     'change_percent': change_percent,
@@ -99,7 +127,7 @@ class StockAnalyzer:
                     'high': high,
                     'low': low,
                     'open': open_price,
-                    'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    'last_updated': time_str
                 }
             except (ValueError, TypeError) as e:
                 raise Exception(f'處理股票數據時發生錯誤: {str(e)}')

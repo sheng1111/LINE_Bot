@@ -734,26 +734,32 @@ async def process_message(user_id, message, reply_token, max_retries=3):
             if command == 'STOCK_QUERY' and params:
                 # 處理股票查詢
                 stock_info = get_stock_info(params)
-                if stock_info:
+                if stock_info and 'error' not in stock_info:
                     response = format_stock_info(stock_info)
                 else:
-                    response = "抱歉，無法獲取該股票資訊。"
+                    error_msg = stock_info.get('error', '無法獲取該股票資訊') if stock_info else '無法獲取該股票資訊'
+                    response = f"抱歉，{error_msg}。"
 
             elif command == 'STOCK_ANALYSIS' and params:
                 # 處理股票分析
-                stock_info = get_stock_info(params)
-                if stock_info:
-                    # 使用 LLM 分析股票資料
-                    analysis_prompt = f"""
-                    請分析以下股票資料並給出專業的見解：
-                    {format_stock_info(stock_info)}
+                try:
+                    stock_info = get_stock_info(params)
+                    if stock_info and 'error' not in stock_info:
+                        # 使用 LLM 分析股票資料
+                        analysis_prompt = f"""
+                        請分析以下股票資料並給出專業的見解：
+                        {format_stock_info(stock_info)}
 
-                    請用通俗易懂的語言總結重要資訊，並給出簡短的分析。
-                    """
-                    analysis = gemini.generate_response(analysis_prompt)
-                    response = f"{format_stock_info(stock_info)}\n\n分析：\n{analysis}"
-                else:
-                    response = "抱歉，無法獲取該股票資訊。"
+                        請用通俗易懂的語言總結重要資訊，並給出簡短的分析。
+                        """
+                        analysis = gemini.generate_response(analysis_prompt)
+                        response = f"{format_stock_info(stock_info)}\n\n分析：\n{analysis}"
+                    else:
+                        error_msg = stock_info.get('error', '無法獲取該股票資訊') if stock_info else '無法獲取該股票資訊'
+                        response = f"抱歉，{error_msg}。"
+                except Exception as e:
+                    logger.error(f"分析股票時發生錯誤：{str(e)}")
+                    response = f"分析股票 {params} 時發生錯誤，請稍後再試。"
 
             elif command == 'TECHNICAL_ANALYSIS' and params:
                 # 處理技術分析
