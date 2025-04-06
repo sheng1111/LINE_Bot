@@ -350,17 +350,31 @@ AI 分析：
                 logger.error(f"處理一般問答時發生錯誤：{str(e)}")
                 response = "處理您的問題時發生錯誤，請稍後再試。"
 
-        # 確保 response 不為 None
+        # 確保 response 不為 None 且是字符串
         if not response:
             response = "抱歉，發生未知錯誤，請稍後再試。"
+        elif not isinstance(response, str):
+            response = str(response)
 
         # 發送回應
-        await line_bot_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=response)]
+        try:
+            await line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=response)]
+                )
             )
-        )
+        except Exception as e:
+            logger.error(f"發送回應時發生錯誤：{str(e)}")
+            try:
+                await line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="抱歉，處理您的請求時發生錯誤，請稍後再試。")]
+                    )
+                )
+            except Exception as reply_error:
+                logger.error(f"發送錯誤訊息時發生錯誤：{str(reply_error)}")
 
     except Exception as e:
         logger.error(f"處理訊息時發生錯誤：{str(e)}", exc_info=True)

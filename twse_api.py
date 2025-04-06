@@ -28,9 +28,14 @@ class TWSEAPI:
         :param max_retries: 最大重試次數
         :return: API 回應
         """
+        # 確保 URL 是完整的
+        if not url.startswith('http'):
+            url = f"{self.base_url}/{url.lstrip('/')}"
+
         for attempt in range(max_retries):
             try:
-                response = requests.get(url, params=params, timeout=10)
+                response = requests.get(
+                    url, params=params, headers=self.headers, timeout=10)
                 response.raise_for_status()
 
                 # 檢查回應內容是否為有效的 JSON
@@ -112,11 +117,11 @@ class TWSEAPI:
         """
         try:
             url = "https://www.twse.com.tw/rss/news"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, headers=self.headers, timeout=10)
             response.raise_for_status()
 
-            # 使用 BeautifulSoup 解析 XML
-            soup = BeautifulSoup(response.content, 'xml')
+            # 使用 lxml 解析 XML
+            soup = BeautifulSoup(response.content, 'lxml-xml')
             items = soup.find_all('item')
 
             news_list = []
@@ -145,11 +150,11 @@ class TWSEAPI:
         """
         try:
             url = f"https://www.twse.com.tw/rss/news/{stock_code}"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, headers=self.headers, timeout=10)
             response.raise_for_status()
 
-            # 使用 BeautifulSoup 解析 XML
-            soup = BeautifulSoup(response.content, 'xml')
+            # 使用 lxml 解析 XML
+            soup = BeautifulSoup(response.content, 'lxml-xml')
             items = soup.find_all('item')
 
             news_list = []
