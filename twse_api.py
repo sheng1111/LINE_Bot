@@ -6,6 +6,8 @@ import numpy as np
 from typing import Dict, List, Optional, Union
 import time
 import xml.etree.ElementTree as ET
+import json
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -18,46 +20,42 @@ class TWSEAPI:
             'Accept': 'application/json'
         }
 
-    def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
-        """發送 API 請求的通用方法"""
-        max_retries = 3
-        retry_delay = 1  # 初始延遲 1 秒
-
+    def _make_request(self, url: str, params: dict = None, max_retries: int = 3) -> dict:
+        """
+        發送 API 請求
+        :param url: API URL
+        :param params: 請求參數
+        :param max_retries: 最大重試次數
+        :return: API 回應
+        """
         for attempt in range(max_retries):
             try:
-                url = f"{self.base_url}/{endpoint}"
-                response = requests.get(
-                    url, headers=self.headers, params=params, timeout=10)
-
-                # 檢查回應狀態碼
-                if response.status_code != 200:
-                    raise requests.exceptions.RequestException(
-                        f"HTTP {response.status_code}: {response.text}")
+                response = requests.get(url, params=params, timeout=10)
+                response.raise_for_status()
 
                 # 檢查回應內容是否為有效的 JSON
                 try:
                     data = response.json()
                     if not data:
-                        raise ValueError("空的 JSON 回應")
+                        raise ValueError("API 回應為空")
                     return data
-                except ValueError as e:
-                    raise ValueError(f"無效的 JSON 回應: {str(e)}")
+                except json.JSONDecodeError as e:
+                    logger.error(
+                        f"API 請求失敗 (嘗試 {attempt + 1}/{max_retries}): 無效的 JSON 回應: {str(e)}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)  # 指數退避
+                        continue
+                    raise
 
-            except (requests.exceptions.RequestException, ValueError) as e:
+            except requests.exceptions.RequestException as e:
                 logger.error(
                     f"API 請求失敗 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # 指數退避
+                    continue
+                raise
 
-                # 如果是最後一次嘗試，記錄詳細錯誤
-                if attempt == max_retries - 1:
-                    error_msg = f"API 請求最終失敗: {str(e)}"
-                    logger.error(error_msg)
-                    raise Exception(error_msg)
-
-                # 否則等待後重試
-                time.sleep(retry_delay)
-                retry_delay *= 2  # 指數退避
-
-        return None
+        raise Exception(f"API 請求最終失敗: 無效的 JSON 回應")
 
     def get_market_index(self) -> Optional[Dict]:
         """獲取大盤指數資訊"""
@@ -107,57 +105,70 @@ class TWSEAPI:
         }
         return self._make_request(endpoint, params)
 
-    def get_market_news(self) -> Optional[Dict]:
-        """獲取市場新聞"""
+    def get_market_news(self) -> list:
+        """
+        獲取市場新聞
+        :return: 新聞列表
+        """
         try:
-            # 使用證交所的新聞 RSS API
-            endpoint = "https://www.twse.com.tw/rss/news"
-            response = requests.get(endpoint, timeout=10)
+            url = "https://www.twse.com.tw/rss/news"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
 
-            if response.status_code != 200:
-                raise Exception('取得新聞失敗')
+            # 使用 BeautifulSoup 解析 XML
+            soup = BeautifulSoup(response.content, 'xml')
+            items = soup.find_all('item')
 
-            # 解析 RSS 格式的新聞
-            news_data = []
-            root = ET.fromstring(response.content)
+            news_list = []
+            for item in items:
+                try:
+                    news_list.append({
+                        'title': item.title.text.strip() if item.title else '',
+                        'link': item.link.text.strip() if item.link else '',
+                        'pubDate': item.pubDate.text.strip() if item.pubDate else ''
+                    })
+                except Exception as e:
+                    logger.warning(f"解析新聞項目時發生錯誤：{str(e)}")
+                    continue
 
-            for item in root.findall('.//item'):
-                news_data.append({
-                    'title': item.find('title').text,
-                    'link': item.find('link').text,
-                    'pubDate': item.find('pubDate').text
-                })
+            return news_list
 
-            return news_data
         except Exception as e:
             logger.error(f"獲取新聞時發生錯誤：{str(e)}")
-            return None
+            return []
 
-    def get_stock_news(self, stock_code: str) -> Optional[Dict]:
-        """獲取個股新聞"""
+    def get_stock_news(self, stock_code: str) -> list:
+        """
+        獲取個股新聞
+        :param stock_code: 股票代碼
+        :return: 新聞列表
+        """
         try:
-            # 使用證交所的個股新聞 API
-            endpoint = f"https://www.twse.com.tw/rss/news/{stock_code}"
-            response = requests.get(endpoint, timeout=10)
+            url = f"https://www.twse.com.tw/rss/news/{stock_code}"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
 
-            if response.status_code != 200:
-                raise Exception('取得個股新聞失敗')
+            # 使用 BeautifulSoup 解析 XML
+            soup = BeautifulSoup(response.content, 'xml')
+            items = soup.find_all('item')
 
-            # 解析 RSS 格式的新聞
-            news_data = []
-            root = ET.fromstring(response.content)
+            news_list = []
+            for item in items:
+                try:
+                    news_list.append({
+                        'title': item.title.text.strip() if item.title else '',
+                        'link': item.link.text.strip() if item.link else '',
+                        'pubDate': item.pubDate.text.strip() if item.pubDate else ''
+                    })
+                except Exception as e:
+                    logger.warning(f"解析新聞項目時發生錯誤：{str(e)}")
+                    continue
 
-            for item in root.findall('.//item'):
-                news_data.append({
-                    'title': item.find('title').text,
-                    'link': item.find('link').text,
-                    'pubDate': item.find('pubDate').text
-                })
+            return news_list
 
-            return news_data
         except Exception as e:
             logger.error(f"獲取個股新聞時發生錯誤：{str(e)}")
-            return None
+            return []
 
     def get_etf_holdings(self, etf_code: str) -> Optional[List[str]]:
         """獲取 ETF 成分股"""
@@ -256,12 +267,25 @@ class TWSEAPI:
             }
 
             response = self._make_request(url, params)
-            if not response or not response.get("data"):
+            if not response or not isinstance(response, dict) or not response.get("data"):
                 return None
 
             # 解析歷史資料
             data = response["data"]
-            closes = [float(row[6]) for row in data]  # 收盤價
+            if not isinstance(data, list):
+                return None
+
+            closes = []
+            for row in data:
+                try:
+                    if isinstance(row, list) and len(row) > 6:
+                        close = float(row[6])
+                        closes.append(close)
+                except (ValueError, IndexError):
+                    continue
+
+            if not closes:
+                return None
 
             # 計算移動平均線
             ma5 = sum(closes[-5:]) / 5 if len(closes) >= 5 else None

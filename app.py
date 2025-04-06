@@ -172,18 +172,20 @@ async def _handle_message_async(event):
         用戶輸入：{user_message}
 
         支援的指令類型：
-        1. STOCK_QUERY - 查詢股票資訊（參數：股票代碼）
-        2. ETF_ANALYSIS - ETF 分析（參數：ETF代碼）
-        3. DIVIDEND_ANALYSIS - 除權息分析（參數：股票代碼）
-        4. PEER_COMPARISON - 同類股比較（參數：股票代碼）
-        5. FUTURES_INFO - 台指期資訊（無參數）
-        6. ETF_OVERLAP - ETF 重疊分析（參數：ETF代碼1,ETF代碼2）
-        7. MARKET_NEWS - 市場新聞（無參數）
-        8. STOCK_NEWS - 個股新聞（參數：股票代碼）
-        9. GENERAL_QUERY - 一般問答（無參數）
+        1. STOCK_QUERY - 單純查詢股票資訊（參數：股票代碼）
+        2. STOCK_ANALYSIS - 分析股票（參數：股票代碼）
+        3. ETF_ANALYSIS - ETF 分析（參數：ETF代碼）
+        4. DIVIDEND_ANALYSIS - 除權息分析（參數：股票代碼）
+        5. PEER_COMPARISON - 同類股比較（參數：股票代碼）
+        6. FUTURES_INFO - 台指期資訊（無參數）
+        7. ETF_OVERLAP - ETF 重疊分析（參數：ETF代碼1,ETF代碼2）
+        8. MARKET_NEWS - 市場新聞（無參數）
+        9. STOCK_NEWS - 個股新聞（參數：股票代碼）
+        10. GENERAL_QUERY - 一般問答（無參數）
 
         請根據以下規則判斷：
-        - 如果只是查詢股票現況，使用 STOCK_QUERY
+        - 如果只是查詢股票現況（如：2330現在多少錢？），使用 STOCK_QUERY
+        - 如果要求分析股票（如：分析台積電的走勢），使用 STOCK_ANALYSIS
         - 如果要求分析 ETF，使用 ETF_ANALYSIS
         - 如果要求除權息資訊，使用 DIVIDEND_ANALYSIS
         - 如果要求比較同類股，使用 PEER_COMPARISON
@@ -214,22 +216,65 @@ async def _handle_message_async(event):
         # 根據意圖執行對應功能
         if command == 'STOCK_QUERY' and params:
             try:
-                # 獲取股票基本資訊
+                # 單純查詢股票資訊
                 stock_info = get_stock_info(params)
-                if stock_info:
-                    # 使用 stock_analyzer 進行分析
-                    analysis = stock_analyzer.analyze_stock(params)
-                    if analysis:
-                        # 結合基本資訊和分析結果
-                        response = format_stock_info(
-                            stock_info) + "\n\n📊 技術分析：\n" + analysis
-                    else:
-                        response = format_stock_info(stock_info)
+                if stock_info and isinstance(stock_info, dict):
+                    response = format_stock_info(stock_info)
                 else:
                     response = f"無法獲取股票 {params} 的資訊，請確認股票代碼是否正確。"
             except Exception as e:
                 logger.error(f"獲取股票資訊時發生錯誤：{str(e)}")
                 response = f"獲取股票 {params} 資訊時發生錯誤，請稍後再試。"
+        elif command == 'STOCK_ANALYSIS' and params:
+            try:
+                # 獲取股票基本資訊
+                stock_info = get_stock_info(params)
+                if stock_info and isinstance(stock_info, dict):
+                    # 使用 stock_analyzer 進行技術分析
+                    technical_analysis = stock_analyzer.analyze_stock(params)
+
+                    # 使用 LLM 進行綜合分析
+                    analysis_prompt = f"""
+                    請根據以下股票資訊進行分析：
+
+                    股票代碼：{params}
+                    基本資訊：
+                    {format_stock_info(stock_info)}
+
+                    技術分析：
+                    {technical_analysis if technical_analysis else '無技術分析資料'}
+
+                    請提供以下分析：
+                    1. 當前股價走勢分析
+                    2. 成交量變化分析
+                    3. 技術指標解讀
+                    4. 短期和中期趨勢判斷
+                    5. 投資建議
+
+                    請用簡潔明瞭的方式回答，重點突出關鍵資訊。
+                    """
+
+                    # 獲取 LLM 分析結果
+                    llm_analysis = gemini.generate_response(analysis_prompt)
+
+                    # 結合所有資訊
+                    response = f"""
+{params} 股票分析報告
+
+基本資訊：
+{format_stock_info(stock_info)}
+
+技術分析：
+{technical_analysis if technical_analysis else '無技術分析資料'}
+
+AI 分析：
+{llm_analysis}
+"""
+                else:
+                    response = f"無法獲取股票 {params} 的資訊，請確認股票代碼是否正確。"
+            except Exception as e:
+                logger.error(f"分析股票時發生錯誤：{str(e)}")
+                response = f"分析股票 {params} 時發生錯誤，請稍後再試。"
         elif command == 'ETF_ANALYSIS' and params:
             try:
                 result = etf_analyzer.analyze_etf(params)
