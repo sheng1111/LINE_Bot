@@ -815,11 +815,12 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                 logger.info(f"處理 ETF 查詢: {etf_code}")
                 
                 try:
-                    # 獲取 ETF 分析結果
-                    etf_info = etf_analyzer.analyze_etf(etf_code)
+                    # 使用 stock_info 模組的 get_stock_info 函數獲取 ETF 資訊
+                    from stock_info import get_stock_info, format_stock_info
+                    etf_info = get_stock_info(etf_code)
                     
                     if etf_info and isinstance(etf_info, dict) and 'error' not in etf_info:
-                        response = etf_analyzer.format_etf_analysis(etf_info)
+                        response = format_stock_info(etf_info)
                     else:
                         error_msg = etf_info.get('error', f"無法獲取 ETF {etf_code} 的資訊") if etf_info else f"無法獲取 ETF {etf_code} 的資訊"
                         logger.error(f"ETF 查詢錯誤: {error_msg}")
