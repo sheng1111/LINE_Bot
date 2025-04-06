@@ -53,6 +53,11 @@ def get_stock_info(stock_code: str) -> dict:
             except (ValueError, TypeError):
                 return default
 
+        # 確保 stock_data 是字典類型
+        if not isinstance(stock_data, dict):
+            logger.error(f"API 返回的股票資料不是字典類型：{type(stock_data).__name__}")
+            return {'error': f'無法解析股票 {stock_code} 資訊'}
+            
         # 確保所有必要的欄位都存在
         required_fields = ['c', 'n', 'z', 'y', 'v', 'h', 'l', 'o']
         for field in required_fields:
@@ -67,33 +72,51 @@ def get_stock_info(stock_code: str) -> dict:
                           100) if yesterday_price > 0 else 0
 
         # 安全地獲取其他資訊
+        # 安全地獲取其他資訊，確保返回字典類型
+        fundamental = {}
+        technical = {}
+        institutional = {}
+        margin = {}
+        
         try:
             # 獲取基本面資料
-            fundamental = twse_api.get_stock_fundamental(stock_code)
+            fundamental_data = twse_api.get_stock_fundamental(stock_code)
+            if isinstance(fundamental_data, dict):
+                fundamental = fundamental_data
+            else:
+                logger.warning(f"基本面資料不是字典類型: {type(fundamental_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取基本面資料失敗: {str(e)}")
-            fundamental = {}
 
         try:
             # 獲取技術指標
-            technical = twse_api.calculate_technical_indicators(stock_code)
+            technical_data = twse_api.calculate_technical_indicators(stock_code)
+            if isinstance(technical_data, dict):
+                technical = technical_data
+            else:
+                logger.warning(f"技術指標不是字典類型: {type(technical_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取技術指標失敗: {str(e)}")
-            technical = {}
 
         try:
             # 獲取法人買賣超
-            institutional = twse_api.get_institutional_investors(stock_code)
+            institutional_data = twse_api.get_institutional_investors(stock_code)
+            if isinstance(institutional_data, dict):
+                institutional = institutional_data
+            else:
+                logger.warning(f"法人買賣超不是字典類型: {type(institutional_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取法人買賣超失敗: {str(e)}")
-            institutional = {}
 
         try:
             # 獲取融資融券
-            margin = twse_api.get_margin_trading(stock_code)
+            margin_data = twse_api.get_margin_trading(stock_code)
+            if isinstance(margin_data, dict):
+                margin = margin_data
+            else:
+                logger.warning(f"融資融券不是字典類型: {type(margin_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取融資融券失敗: {str(e)}")
-            margin = {}
 
         return {
             "code": stock_code,

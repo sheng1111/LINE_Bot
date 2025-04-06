@@ -630,10 +630,24 @@ class ETFAnalyzer:
             industry_dist = {}
             top_holdings = []
 
-            if holdings_data:
-                for stock in holdings_data.get('holdings', []):
-                    stock_code = stock.get('code')
-                    weight = stock.get('weight', 0)
+            if holdings_data and 'holdings' in holdings_data:
+                holdings = holdings_data.get('holdings', [])
+                for stock in holdings:
+                    # 處理 stock 可能是字符串的情況
+                    if isinstance(stock, str):
+                        stock_code = stock
+                        weight = 1.0  # 使用預設權重
+                    elif isinstance(stock, dict):
+                        stock_code = stock.get('code', '')
+                        weight = stock.get('weight', 0)
+                    else:
+                        # 如果是其他類型，嘗試轉換為字符串
+                        stock_code = str(stock)
+                        weight = 1.0
+
+                    # 確保 stock_code 不為空
+                    if not stock_code:
+                        continue
 
                     # 找出股票所屬產業
                     for industry, stocks in self.industry_mapping.items():
@@ -645,22 +659,29 @@ class ETFAnalyzer:
 
                     # 記錄前十大持股
                     if len(top_holdings) < 10:
-                        top_holdings.append({
-                            'code': stock_code,
-                            'name': stock.get('name', 'Unknown'),
-                            'weight': weight
-                        })
+                        if isinstance(stock, dict):
+                            top_holdings.append({
+                                'code': stock_code,
+                                'name': stock.get('name', 'Unknown'),
+                                'weight': weight
+                            })
+                        else:
+                            top_holdings.append({
+                                'code': stock_code,
+                                'name': 'Unknown',
+                                'weight': weight
+                            })
 
             # 生成分析結果
             result = {
                 'etf_code': etf_code,
-                'name': etf_info['name'],
-                'price': etf_info['price'],
-                'yield_rate': etf_info['yield_rate'],
-                'expense_ratio': etf_info['expense_ratio'],
+                'name': etf_info.get('name', f'ETF_{etf_code}'),
+                'price': etf_info.get('price', 0),
+                'yield_rate': etf_info.get('yield_rate', 0),
+                'expense_ratio': etf_info.get('expense_ratio', 0),
                 'industry_distribution': industry_dist,
                 'top_holdings': top_holdings,
-                'total_holdings': len(holdings_data.get('holdings', [])) if holdings_data else 0,
+                'total_holdings': len(holdings_data.get('holdings', [])) if holdings_data and 'holdings' in holdings_data else 0,
                 'analysis_time': datetime.now()
             }
 
