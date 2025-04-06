@@ -77,11 +77,6 @@ def get_stock_info(stock_code: str) -> dict:
             except (ValueError, TypeError):
                 return default
 
-        # 確保 stock_data 是字典類型
-        if not isinstance(stock_data, dict):
-            logger.error(f"API 返回的股票資料不是字典類型：{type(stock_data).__name__}")
-            return {'error': f'無法解析股票 {stock_code} 資訊'}
-            
         # 確保所有必要的欄位都存在
         required_fields = ['c', 'n', 'z', 'y', 'v', 'h', 'l', 'o']
         for field in required_fields:
@@ -96,7 +91,6 @@ def get_stock_info(stock_code: str) -> dict:
                           100) if yesterday_price > 0 else 0
 
         # 安全地獲取其他資訊
-        # 安全地獲取其他資訊，確保返回字典類型
         # 先建立空字典，避免後續出現 None 的情況
         fundamental = {}
         technical = {}
@@ -129,13 +123,51 @@ def get_stock_info(stock_code: str) -> dict:
             technical_data = twse_api.calculate_technical_indicators(stock_code)
             if technical_data is None:
                 logger.warning(f"技術指標為 None")
+                # 確保 technical 是一個包含必要欄位的字典
+                technical = {
+                    "ma5": [0],
+                    "ma10": [0],
+                    "ma20": [0],
+                    "kd": {"k": [0], "d": [0]},
+                    "rsi": [0]
+                }
             elif isinstance(technical_data, dict):
+                # 確保 technical_data 包含所有必要的欄位
+                if "ma5" not in technical_data or technical_data["ma5"] is None:
+                    technical_data["ma5"] = [0]
+                if "ma10" not in technical_data or technical_data["ma10"] is None:
+                    technical_data["ma10"] = [0]
+                if "ma20" not in technical_data or technical_data["ma20"] is None:
+                    technical_data["ma20"] = [0]
+                if "kd" not in technical_data or technical_data["kd"] is None:
+                    technical_data["kd"] = {"k": [0], "d": [0]}
+                elif "k" not in technical_data["kd"] or technical_data["kd"]["k"] is None:
+                    technical_data["kd"]["k"] = [0]
+                elif "d" not in technical_data["kd"] or technical_data["kd"]["d"] is None:
+                    technical_data["kd"]["d"] = [0]
+                if "rsi" not in technical_data or technical_data["rsi"] is None:
+                    technical_data["rsi"] = [0]
                 technical = technical_data
             else:
                 logger.warning(f"技術指標不是字典類型: {type(technical_data).__name__}")
+                # 提供默認值
+                technical = {
+                    "ma5": [0],
+                    "ma10": [0],
+                    "ma20": [0],
+                    "kd": {"k": [0], "d": [0]},
+                    "rsi": [0]
+                }
         except Exception as e:
             logger.warning(f"獲取技術指標失敗: {str(e)}")
-            # 不要因為這個失敗就中斷整個查詢
+            # 提供默認值
+            technical = {
+                "ma5": [0],
+                "ma10": [0],
+                "ma20": [0],
+                "kd": {"k": [0], "d": [0]},
+                "rsi": [0]
+            }
 
         try:
             # 獲取法人買賣超
@@ -191,6 +223,30 @@ def get_stock_info(stock_code: str) -> dict:
             logger.warning(f"獲取融資融券失敗: {str(e)}")
             # 不要因為這個失敗就中斷整個查詢
 
+        # 確保 technical 字典中的所有欄位都是可訂閱的
+        if technical is None:
+            technical = {
+                "ma5": [0],
+                "ma10": [0],
+                "ma20": [0],
+                "kd": {"k": [0], "d": [0]},
+                "rsi": [0]
+            }
+        
+        # 確保 technical 中的欄位是列表且非空
+        for key in ["ma5", "ma10", "ma20", "rsi"]:
+            if key not in technical or not isinstance(technical[key], list) or not technical[key]:
+                technical[key] = [0]
+        
+        # 確保 kd 欄位存在且包含 k 和 d
+        if "kd" not in technical or not isinstance(technical["kd"], dict):
+            technical["kd"] = {"k": [0], "d": [0]}
+        else:
+            if "k" not in technical["kd"] or not isinstance(technical["kd"]["k"], list) or not technical["kd"]["k"]:
+                technical["kd"]["k"] = [0]
+            if "d" not in technical["kd"] or not isinstance(technical["kd"]["d"], list) or not technical["kd"]["d"]:
+                technical["kd"]["d"] = [0]
+        
         return {
             "code": stock_code,
             "name": stock_data.get('n', ''),
