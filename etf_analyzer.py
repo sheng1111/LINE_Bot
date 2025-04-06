@@ -84,9 +84,13 @@ class ETFAnalyzer:
         """
         try:
             # 檢查 ETF 代碼是否有效
-            if not etf_code.isdigit() or len(etf_code) != 6:
+            if not etf_code.isdigit() or len(etf_code) not in [4, 6]:
                 logger.error(f"無效的 ETF 代碼格式：{etf_code}")
                 return {'error': f'無效的 ETF 代碼格式：{etf_code}'}
+
+            # 如果是 4 位數代碼，補零到 6 位數
+            if len(etf_code) == 4:
+                etf_code = etf_code.zfill(6)
 
             # 檢查快取
             if etf_code in self.cache:

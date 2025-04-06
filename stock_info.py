@@ -113,7 +113,6 @@ def format_stock_info(stock_info: dict) -> str:
 今日最高: {stock_info['high']}
 今日最低: {stock_info['low']}
 成交量: {stock_info['volume']:,}
-成交金額: {stock_info['trading_value']:,.0f}
 更新時間: {stock_info['last_updated']}
 """
 
