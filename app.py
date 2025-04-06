@@ -278,7 +278,10 @@ AI 分析：
         elif command == 'ETF_ANALYSIS' and params:
             try:
                 result = etf_analyzer.analyze_etf(params)
-                response = result if result else f"無法分析 ETF {params}，請確認 ETF 代碼是否正確。"
+                if 'error' in result:
+                    response = result['error']
+                else:
+                    response = etf_analyzer.format_etf_analysis(result)
             except Exception as e:
                 logger.error(f"分析 ETF 時發生錯誤：{str(e)}")
                 response = f"分析 ETF {params} 時發生錯誤，請稍後再試。"

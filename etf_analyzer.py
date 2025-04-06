@@ -414,7 +414,7 @@ class ETFAnalyzer:
 
             # 獲取 ETF 基本資訊
             etf_info = self.get_etf_info(etf_code)
-            if not etf_info:
+            if not etf_info or 'error' in etf_info:
                 return {'error': f'無法獲取 ETF {etf_code} 的資訊'}
 
             # 從資料庫獲取成分股資料
@@ -470,6 +470,47 @@ class ETFAnalyzer:
         except Exception as e:
             logger.error(f"分析 ETF {etf_code} 時發生錯誤：{str(e)}")
             return {'error': f'分析 ETF {etf_code} 時發生錯誤：{str(e)}'}
+
+    def format_etf_analysis(self, analysis: Dict) -> str:
+        """
+        格式化 ETF 分析結果
+        :param analysis: 分析結果字典
+        :return: 格式化後的字符串
+        """
+        if not analysis or 'error' in analysis:
+            return "無法獲取 ETF 分析結果。"
+
+        try:
+            result = f"""📊 {analysis['name']} ({analysis['etf_code']}) 分析報告
+
+💰 基本資訊：
+• 當前價格：{analysis['price']}
+• 殖利率：{analysis['yield_rate']:.2f}%
+• 費用率：{analysis['expense_ratio']:.2f}%
+• 總持股數：{analysis['total_holdings']}
+
+📈 產業分布："""
+
+            if analysis['industry_distribution']:
+                for industry, weight in analysis['industry_distribution'].items():
+                    result += f"\n• {industry}：{weight:.2f}%"
+            else:
+                result += "\n• 暫無產業分布資料"
+
+            result += "\n\n🏆 前十大持股："
+            if analysis['top_holdings']:
+                for holding in analysis['top_holdings']:
+                    result += f"\n• {holding['code']} ({holding['name']})：{holding['weight']:.2f}%"
+            else:
+                result += "\n• 暫無持股資料"
+
+            result += f"\n\n⏰ 更新時間：{analysis['analysis_time'].strftime('%Y-%m-%d %H:%M:%S')}"
+
+            return result
+
+        except Exception as e:
+            logger.error(f"格式化 ETF 分析結果時發生錯誤：{str(e)}")
+            return "格式化分析結果時發生錯誤。"
 
 
 # 建立全域分析器實例

@@ -73,18 +73,15 @@ def get_stock_info(stock_code: str) -> dict:
         margin = twse_api.get_margin_trading(stock_code)
 
         return {
-            "name": stock_data.get('n', '未知'),
             "code": stock_code,
-            "current_price": current_price,
-            "yesterday_price": yesterday_price,
-            "day_high": safe_float(stock_data.get('h', 0)),
-            "day_low": safe_float(stock_data.get('l', 0)),
-            "volume": int(safe_float(stock_data.get('v', 0))),
+            "name": stock_data.get('n', ''),
+            "price": current_price,
             "change": change,
             "change_percent": change_percent,
-            "open_price": safe_float(stock_data.get('o', 0)),
-            "trading_value": safe_float(stock_data.get('tv', 0)),
-            "trading_volume": int(safe_float(stock_data.get('v', 0))),
+            "volume": int(safe_float(stock_data.get('v', 0))),
+            "high": safe_float(stock_data.get('h', 0)),
+            "low": safe_float(stock_data.get('l', 0)),
+            "open": safe_float(stock_data.get('o', 0)),
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "status": stock_data.get('s', '正常交易'),
             "fundamental": fundamental,
@@ -111,10 +108,10 @@ def format_stock_info(stock_info: dict) -> str:
     message = f"""
 {stock_info['name']} 股票資訊
 
-當前價格: {stock_info['current_price']}
+當前價格: {stock_info['price']}
 漲跌幅: {stock_info['change']} ({stock_info['change_percent']:.2f}%)
-今日最高: {stock_info['day_high']}
-今日最低: {stock_info['day_low']}
+今日最高: {stock_info['high']}
+今日最低: {stock_info['low']}
 成交量: {stock_info['volume']:,}
 成交金額: {stock_info['trading_value']:,.0f}
 更新時間: {stock_info['last_updated']}
