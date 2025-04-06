@@ -733,12 +733,23 @@ async def process_message(user_id, message, reply_token, max_retries=3):
         if command:
             if command == 'STOCK_QUERY' and params:
                 # 處理股票查詢
-                stock_info = get_stock_info(params)
-                if stock_info and 'error' not in stock_info:
-                    response = format_stock_info(stock_info)
-                else:
-                    error_msg = stock_info.get('error', '無法獲取該股票資訊') if stock_info else '無法獲取該股票資訊'
-                    response = f"抱歉，{error_msg}。"
+                # 確保股票代碼格式正確
+                stock_code = params.strip().replace('.', '')
+                logger.info(f"處理股票查詢: {stock_code}")
+                
+                try:
+                    # 獲取股票資訊
+                    stock_info = get_stock_info(stock_code)
+                    
+                    if stock_info and isinstance(stock_info, dict) and 'error' not in stock_info:
+                        response = format_stock_info(stock_info)
+                    else:
+                        error_msg = stock_info.get('error', '無法獲取該股票資訊') if stock_info else '無法獲取該股票資訊'
+                        logger.error(f"股票查詢錯誤: {error_msg}")
+                        response = f"抱歉，{error_msg}。"
+                except Exception as e:
+                    logger.error(f"獲取股票資訊時發生錯誤：{str(e)}")
+                    response = f"獲取股票 {stock_code} 資訊時發生錯誤，請稍後再試。"
 
             elif command == 'STOCK_ANALYSIS' and params:
                 # 處理股票分析
@@ -800,38 +811,60 @@ async def process_message(user_id, message, reply_token, max_retries=3):
             elif command == 'ETF_QUERY' and params:
                 # 處理 ETF 查詢
                 # 使用原始 ETF 代碼，不需要轉換格式
-                etf_code = params.strip()
+                etf_code = params.strip().replace('.', '')
+                logger.info(f"處理 ETF 查詢: {etf_code}")
                 
-                # 獲取 ETF 分析結果
-                etf_info = etf_analyzer.analyze_etf(etf_code)
-                if 'error' not in etf_info:
-                    response = etf_analyzer.format_etf_analysis(etf_info)
-                else:
-                    response = f"無法獲取 ETF {etf_code} 的資訊"
+                try:
+                    # 獲取 ETF 分析結果
+                    etf_info = etf_analyzer.analyze_etf(etf_code)
+                    
+                    if etf_info and isinstance(etf_info, dict) and 'error' not in etf_info:
+                        response = etf_analyzer.format_etf_analysis(etf_info)
+                    else:
+                        error_msg = etf_info.get('error', f"無法獲取 ETF {etf_code} 的資訊") if etf_info else f"無法獲取 ETF {etf_code} 的資訊"
+                        logger.error(f"ETF 查詢錯誤: {error_msg}")
+                        response = f"抱歉，{error_msg}。"
+                except Exception as e:
+                    logger.error(f"獲取 ETF 資訊時發生錯誤：{str(e)}")
+                    response = f"獲取 ETF {etf_code} 資訊時發生錯誤，請稍後再試。"
             
             elif command == 'ETF_OVERLAP' and params:
                 # 處理 ETF 重疊分析
                 etf_codes = params.split()
                 if len(etf_codes) == 2:
-                    holdings1 = twse_api.get_etf_holdings(etf_codes[0])
-                    holdings2 = twse_api.get_etf_holdings(etf_codes[1])
+                    # 清理 ETF 代碼
+                    etf_code1 = etf_codes[0].strip().replace('.', '')
+                    etf_code2 = etf_codes[1].strip().replace('.', '')
+                    logger.info(f"處理 ETF 重疊分析: {etf_code1} 和 {etf_code2}")
+                    
+                    try:
+                        # 使用我們修改過的 fetch_etf_holdings 方法直接從網路獲取最新的 ETF 成分股資料
+                        holdings1 = etf_analyzer.fetch_etf_holdings(etf_code1)
+                        holdings2 = etf_analyzer.fetch_etf_holdings(etf_code2)
+                        
+                        if holdings1 and holdings2 and isinstance(holdings1, list) and isinstance(holdings2, list):
+                            # 計算重疊成分股
+                            overlap = set(holdings1) & set(holdings2)
 
-                    if holdings1 and holdings2:
-                        # 計算重疊成分股
-                        overlap = set(holdings1) & set(holdings2)
+                            response = f"【{etf_code1} 和 {etf_code2} 重疊分析】\n\n"
+                            response += f"重疊成分股數量：{len(overlap)}\n\n"
+                            
+                            if overlap:
+                                response += "重疊成分股：\n"
+                                for stock in sorted(overlap):
+                                    response += f"- {stock}\n"
 
-                        response = f"【{etf_codes[0]} 和 {etf_codes[1]} 重疊分析】\n\n"
-                        response += f"重疊成分股數量：{len(overlap)}\n\n"
-                        response += "重疊成分股：\n"
-                        for stock in sorted(overlap):
-                            response += f"- {stock}\n"
-
-                        # 計算重疊率
-                        overlap_ratio = len(overlap) / \
-                            min(len(holdings1), len(holdings2))
-                        response += f"\n重疊率：{overlap_ratio:.2%}"
-                    else:
-                        response = "抱歉，無法獲取 ETF 成分股資料。"
+                                # 計算重疊率
+                                overlap_ratio = len(overlap) / min(len(holdings1), len(holdings2))
+                                response += f"\n重疊率：{overlap_ratio:.2%}"
+                            else:
+                                response += "这兩個 ETF 沒有重疊的成分股。"
+                        else:
+                            logger.error(f"無法獲取 ETF 成分股: {etf_code1} 或 {etf_code2}")
+                            response = f"抱歉，無法獲取 ETF {etf_code1} 或 {etf_code2} 的成分股資料。"
+                    except Exception as e:
+                        logger.error(f"分析 ETF 重疊時發生錯誤：{str(e)}")
+                        response = f"分析 ETF {etf_code1} 和 {etf_code2} 重疊時發生錯誤，請稍後再試。"
                 else:
                     response = "請提供兩個 ETF 代碼進行比較。"
 

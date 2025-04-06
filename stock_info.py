@@ -19,12 +19,21 @@ def get_stock_info(stock_code: str) -> dict:
     """
     try:
         # 檢查股票代碼是否有效
-        if not stock_code.isdigit() or len(stock_code) != 4:
+        if not stock_code or not stock_code.strip():
+            logger.error("股票代碼不能為空")
+            return {'error': '股票代碼不能為空'}
+            
+        # 移除可能的空格和特殊字符
+        stock_code = stock_code.strip().replace('.', '')
+        
+        if not stock_code.isdigit():
             logger.error(f"無效的股票代碼格式：{stock_code}")
             return {'error': f'無效的股票代碼格式：{stock_code}'}
 
         # 獲取股票資訊
         url = f"{TWSE_API_URL}?ex_ch=tse_{stock_code}.tw"
+        logger.info(f"請求股票資訊 URL: {url}")
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
             'Accept': 'application/json',
@@ -35,17 +44,32 @@ def get_stock_info(stock_code: str) -> dict:
 
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
+        
+        # 檢查響應內容
+        if not response.content or len(response.content.strip()) == 0:
+            logger.error(f"股票 {stock_code} API 回應為空")
+            return {'error': f'無法獲取股票 {stock_code} 資訊，請確認代碼是否正確'}
+            
         data = response.json()
 
-        if not isinstance(data, dict) or 'msgArray' not in data or not data['msgArray']:
-            logger.error(f"API 返回的資料格式不正確：{data}")
+        # 詳細檢查資料格式
+        if not isinstance(data, dict):
+            logger.error(f"API 返回的資料不是字典格式: {type(data).__name__}")
             return {'error': 'API 返回的資料格式不正確'}
+            
+        if 'msgArray' not in data:
+            logger.error(f"API 返回的資料中缺少 msgArray 欄位: {data.keys()}")
+            return {'error': 'API 返回的資料格式不正確'}
+            
+        if not data['msgArray'] or len(data['msgArray']) == 0:
+            logger.error(f"無法獲取股票 {stock_code} 資訊，返回的 msgArray 為空")
+            return {'error': f'無法獲取股票 {stock_code} 資訊，請確認代碼是否正確'}
 
-        if len(data['msgArray']) == 0:
-            logger.error(f"無法獲取股票 {stock_code} 資訊")
-            return {'error': f'無法獲取股票 {stock_code} 資訊'}
-
+        # 確保 stock_data 是字典
         stock_data = data['msgArray'][0]
+        if not isinstance(stock_data, dict):
+            logger.error(f"API 返回的股票資料不是字典格式: {type(stock_data).__name__}")
+            return {'error': f'無法解析股票 {stock_code} 資訊'}
 
         def safe_float(value, default=0):
             try:
@@ -73,19 +97,22 @@ def get_stock_info(stock_code: str) -> dict:
 
         # 安全地獲取其他資訊
         # 安全地獲取其他資訊，確保返回字典類型
+        # 先建立空字典，避免後續出現 None 的情況
         fundamental = {}
         technical = {}
         institutional = {}
         margin = {}
         
+        # 嘗試獲取基本面資料，但不要因為這個失敗就中斷整個查詢
         try:
             # 獲取基本面資料
             fundamental_data = twse_api.get_stock_fundamental(stock_code)
-            if isinstance(fundamental_data, dict):
+            if fundamental_data is None:
+                logger.warning(f"基本面資料為 None")
+            elif isinstance(fundamental_data, dict):
                 fundamental = fundamental_data
             elif isinstance(fundamental_data, list) and fundamental_data:
                 # 如果是列表，轉換為字典
-                fundamental = {}
                 for item in fundamental_data:
                     if isinstance(item, dict):
                         for key, value in item.items():
@@ -95,25 +122,30 @@ def get_stock_info(stock_code: str) -> dict:
                 logger.warning(f"基本面資料格式不正確: {type(fundamental_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取基本面資料失敗: {str(e)}")
+            # 不要因為這個失敗就中斷整個查詢
 
         try:
             # 獲取技術指標
             technical_data = twse_api.calculate_technical_indicators(stock_code)
-            if isinstance(technical_data, dict):
+            if technical_data is None:
+                logger.warning(f"技術指標為 None")
+            elif isinstance(technical_data, dict):
                 technical = technical_data
             else:
                 logger.warning(f"技術指標不是字典類型: {type(technical_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取技術指標失敗: {str(e)}")
+            # 不要因為這個失敗就中斷整個查詢
 
         try:
             # 獲取法人買賣超
             institutional_data = twse_api.get_institutional_investors(stock_code)
-            if isinstance(institutional_data, dict):
+            if institutional_data is None:
+                logger.warning(f"法人買賣超為 None")
+            elif isinstance(institutional_data, dict):
                 institutional = institutional_data
             elif isinstance(institutional_data, list) and institutional_data:
                 # 如果是列表，轉換為字典
-                institutional = {}
                 for item in institutional_data:
                     if isinstance(item, dict) and 'stock_code' in item and item.get('stock_code') == stock_code:
                         for key, value in item.items():
@@ -130,15 +162,17 @@ def get_stock_info(stock_code: str) -> dict:
                 logger.warning(f"法人買賣超格式不正確: {type(institutional_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取法人買賣超失敗: {str(e)}")
+            # 不要因為這個失敗就中斷整個查詢
 
         try:
             # 獲取融資融券
             margin_data = twse_api.get_margin_trading(stock_code)
-            if isinstance(margin_data, dict):
+            if margin_data is None:
+                logger.warning(f"融資融券為 None")
+            elif isinstance(margin_data, dict):
                 margin = margin_data
             elif isinstance(margin_data, list) and margin_data:
                 # 如果是列表，轉換為字典
-                margin = {}
                 for item in margin_data:
                     if isinstance(item, dict) and 'stock_code' in item and item.get('stock_code') == stock_code:
                         for key, value in item.items():
@@ -155,6 +189,7 @@ def get_stock_info(stock_code: str) -> dict:
                 logger.warning(f"融資融券格式不正確: {type(margin_data).__name__}")
         except Exception as e:
             logger.warning(f"獲取融資融券失敗: {str(e)}")
+            # 不要因為這個失敗就中斷整個查詢
 
         return {
             "code": stock_code,
