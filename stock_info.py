@@ -41,6 +41,10 @@ def get_stock_info(stock_code: str) -> dict:
             logger.error(f"API 返回的資料格式不正確：{data}")
             return {'error': 'API 返回的資料格式不正確'}
 
+        if len(data['msgArray']) == 0:
+            logger.error(f"無法獲取股票 {stock_code} 資訊")
+            return {'error': f'無法獲取股票 {stock_code} 資訊'}
+
         stock_data = data['msgArray'][0]
 
         def safe_float(value, default=0):
@@ -49,6 +53,12 @@ def get_stock_info(stock_code: str) -> dict:
             except (ValueError, TypeError):
                 return default
 
+        # 確保所有必要的欄位都存在
+        required_fields = ['c', 'n', 'z', 'y', 'v', 'h', 'l', 'o']
+        for field in required_fields:
+            if field not in stock_data:
+                stock_data[field] = '0'
+
         # 計算漲跌
         current_price = safe_float(stock_data.get('z', 0))
         yesterday_price = safe_float(stock_data.get('y', 0))
@@ -56,17 +66,34 @@ def get_stock_info(stock_code: str) -> dict:
         change_percent = (change / yesterday_price *
                           100) if yesterday_price > 0 else 0
 
-        # 獲取基本面資料
-        fundamental = twse_api.get_stock_fundamental(stock_code)
+        # 安全地獲取其他資訊
+        try:
+            # 獲取基本面資料
+            fundamental = twse_api.get_stock_fundamental(stock_code)
+        except Exception as e:
+            logger.warning(f"獲取基本面資料失敗: {str(e)}")
+            fundamental = {}
 
-        # 獲取技術指標
-        technical = twse_api.calculate_technical_indicators(stock_code)
+        try:
+            # 獲取技術指標
+            technical = twse_api.calculate_technical_indicators(stock_code)
+        except Exception as e:
+            logger.warning(f"獲取技術指標失敗: {str(e)}")
+            technical = {}
 
-        # 獲取法人買賣超
-        institutional = twse_api.get_institutional_investors(stock_code)
+        try:
+            # 獲取法人買賣超
+            institutional = twse_api.get_institutional_investors(stock_code)
+        except Exception as e:
+            logger.warning(f"獲取法人買賣超失敗: {str(e)}")
+            institutional = {}
 
-        # 獲取融資融券
-        margin = twse_api.get_margin_trading(stock_code)
+        try:
+            # 獲取融資融券
+            margin = twse_api.get_margin_trading(stock_code)
+        except Exception as e:
+            logger.warning(f"獲取融資融券失敗: {str(e)}")
+            margin = {}
 
         return {
             "code": stock_code,
@@ -99,6 +126,9 @@ def format_stock_info(stock_info: dict) -> str:
     """
     if not stock_info:
         return "無法獲取股票資訊，請確認股票代碼是否正確。"
+    
+    if 'error' in stock_info:
+        return f"獲取股票資訊時發生錯誤：{stock_info['error']}"
 
     # 基本資訊
     message = f"""

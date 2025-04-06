@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class StockAnalyzer:
     def __init__(self):
         self.cache = {}
-        self.cache_timeout = 300  # 快取時間 5 分鐘
+        self.cache_timeout = timedelta(minutes=5)  # 快取時間 5 分鐘
         self.technical_indicators = {
             'bollinger_bands': self._calculate_bollinger_bands,
             'support_resistance': self._calculate_support_resistance,

@@ -597,17 +597,25 @@ async def send_etf_overlap_analysis(max_retries=3):
         collection = db.get_collection('users')
         users = collection.find({})
 
-        # 分析 ETF 重疊
-        analysis = await analyze_etf_overlap()
-        if not analysis:
-            logger.warning("沒有生成 ETF 重疊分析結果")
+        # 定義要分析的熱門 ETF
+        popular_etfs = ['0050', '0056', '00878', '00881', '00891']
+        
+        # 使用 ETFAnalyzer 的新方法直接從網路獲取最新的 ETF 成分股資料
+        logger.info("開始獲取最新的 ETF 成分股資料")
+        analysis = etf_analyzer.analyze_etf_overlap(popular_etfs)
+        
+        if not analysis or not analysis.get('overlap_stocks'):
+            logger.warning("沒有生成 ETF 重疊分析結果或沒有重疊股票")
             return
 
         # 格式化分析結果
-        message = format_overlap_analysis(analysis['overlap_stocks'])
+        message = etf_analyzer.format_overlap_analysis(analysis)
+        logger.info(f"已生成 ETF 重疊分析結果，找到 {len(analysis['overlap_stocks'])} 個重疊股票")
 
         # 發送給每個使用者
+        user_count = 0
         for user in users:
+            user_count += 1
             for attempt in range(max_retries):
                 try:
                     await line_bot_api.push_message(
@@ -622,6 +630,8 @@ async def send_etf_overlap_analysis(max_retries=3):
                     if attempt == max_retries - 1:
                         logger.error(
                             f"發送 ETF 重疊分析給使用者 {user['user_id']} 最終失敗: {str(e)}")
+        
+        logger.info(f"已完成 ETF 重疊分析通知發送，共發送給 {user_count} 個用戶")
     except Exception as e:
         logger.error(f"執行 ETF 重疊分析時發生錯誤: {str(e)}", exc_info=True)
 
@@ -685,17 +695,19 @@ async def process_message(user_id, message, reply_token, max_retries=3):
         1. STOCK_QUERY - 查詢股票資訊（參數：股票代碼）
         2. STOCK_ANALYSIS - 股票分析（參數：股票代碼）
         3. TECHNICAL_ANALYSIS - 技術分析（參數：股票代碼）
-        4. ETF_OVERLAP - ETF 重疊分析（參數：ETF代碼1 ETF代碼2）
-        5. MARKET_NEWS - 查看市場新聞（無參數）
-        6. MARKET_RANKING - 查看市場排行（無參數）
-        7. CHIP_ANALYSIS - 籌碼分析（參數：股票代碼）
-        8. PRICE_ALERT - 設定提醒（參數：股票代碼 價格）
-        9. GENERAL_QUERY - 一般問答（無參數）
+        4. ETF_QUERY - 查詢 ETF 資訊（參數：ETF代碼）
+        5. ETF_OVERLAP - ETF 重疊分析（參數：ETF代碼1 ETF代碼2）
+        6. MARKET_NEWS - 查看市場新聞（無參數）
+        7. MARKET_RANKING - 查看市場排行（無參數）
+        8. CHIP_ANALYSIS - 籌碼分析（參數：股票代碼）
+        9. PRICE_ALERT - 設定提醒（參數：股票代碼 價格）
+        10. GENERAL_QUERY - 一般問答（無參數）
 
         請根據以下規則判斷：
         - 如果只是查詢股票現況，使用 STOCK_QUERY
         - 如果要求分析股票，使用 STOCK_ANALYSIS
         - 如果要求技術分析，使用 TECHNICAL_ANALYSIS
+        - 如果查詢 ETF 資訊，使用 ETF_QUERY
         - 如果要求 ETF 重疊分析，使用 ETF_OVERLAP
         - 如果無法確定，使用 GENERAL_QUERY
 
@@ -779,6 +791,18 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                 else:
                     response = "抱歉，無法獲取技術分析資料。"
 
+            elif command == 'ETF_QUERY' and params:
+                # 處理 ETF 查詢
+                # 使用原始 ETF 代碼，不需要轉換格式
+                etf_code = params.strip()
+                
+                # 獲取 ETF 分析結果
+                etf_info = etf_analyzer.analyze_etf(etf_code)
+                if 'error' not in etf_info:
+                    response = etf_analyzer.format_etf_analysis(etf_info)
+                else:
+                    response = f"無法獲取 ETF {etf_code} 的資訊"
+            
             elif command == 'ETF_OVERLAP' and params:
                 # 處理 ETF 重疊分析
                 etf_codes = params.split()
