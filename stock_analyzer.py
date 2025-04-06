@@ -65,25 +65,44 @@ class StockAnalyzer:
             if response.status_code != 200:
                 raise Exception('取得股票資訊失敗')
 
-            data = json.loads(response.text)
+            data = response.json()
 
-            if not data.get('msgArray'):
+            if not data or 'msgArray' not in data or not data['msgArray']:
                 raise Exception('無股票資料')
 
             stock_data = data['msgArray'][0]
 
-            result = {
-                'code': stock_data['c'],
-                'name': stock_data['n'],
-                'price': float(stock_data['z']) if stock_data['z'] else 0,
-                'change': float(stock_data['z']) - float(stock_data['y']) if stock_data['z'] and stock_data['y'] else 0,
-                'change_percent': ((float(stock_data['z']) - float(stock_data['y'])) / float(stock_data['y']) * 100) if stock_data['z'] and stock_data['y'] else 0,
-                'volume': int(stock_data['v']) if stock_data['v'] else 0,
-                'high': float(stock_data['h']) if stock_data['h'] else 0,
-                'low': float(stock_data['l']) if stock_data['l'] else 0,
-                'open': float(stock_data['o']) if stock_data['o'] else 0,
-                'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
+            # 確保所有必要的欄位都存在且有效
+            if not all(key in stock_data for key in ['c', 'n', 'z', 'y', 'v', 'h', 'l', 'o']):
+                raise Exception('股票資料不完整')
+
+            # 安全地轉換數值
+            try:
+                price = float(stock_data['z']) if stock_data['z'] else 0
+                prev_price = float(stock_data['y']) if stock_data['y'] else price
+                volume = int(stock_data['v']) if stock_data['v'] else 0
+                high = float(stock_data['h']) if stock_data['h'] else price
+                low = float(stock_data['l']) if stock_data['l'] else price
+                open_price = float(stock_data['o']) if stock_data['o'] else price
+
+                # 計算漲跌幅
+                change = price - prev_price
+                change_percent = (change / prev_price * 100) if prev_price > 0 else 0
+
+                result = {
+                    'code': stock_data['c'],
+                    'name': stock_data['n'],
+                    'price': price,
+                    'change': change,
+                    'change_percent': change_percent,
+                    'volume': volume,
+                    'high': high,
+                    'low': low,
+                    'open': open_price,
+                    'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+            except (ValueError, TypeError) as e:
+                raise Exception(f'處理股票數據時發生錯誤: {str(e)}')
 
             # 更新快取
             self.cache[cache_key] = {

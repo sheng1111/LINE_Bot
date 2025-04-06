@@ -54,7 +54,7 @@ class GeminiClient:
         self.chat = model.start_chat(history=[])
         self.chat.send_message(SYSTEM_PROMPT)
         self.last_request_time = {}  # 用於速率限制
-        self.rate_limit = 1  # 1 秒內只能發送一次請求
+        self.rate_limit = 0.1  # 100ms 內只能發送一次請求
         self.cache = {}  # 用於快取
         self.cache_timeout = 300  # 快取超時時間（秒）
         self.max_cache_size = 1000  # 最大快取數量
@@ -100,7 +100,7 @@ class GeminiClient:
             if user_id in self.last_request_time:
                 time_diff = current_time - self.last_request_time[user_id]
                 if time_diff < self.rate_limit:
-                    return f"系統正在處理中，請稍候再試。"
+                    time.sleep(self.rate_limit - time_diff)
 
             # 更新最後請求時間
             self.last_request_time[user_id] = current_time

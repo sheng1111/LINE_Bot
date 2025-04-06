@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 # 台灣證交所 API 設定
 TWSE_API_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
-ETF_INFO_URL = "https://www.twse.com.tw/zh/ETF/etfBasicInfo"
+ETF_INFO_URL = "https://www.twse.com.tw/rwd/zh/ETF/etfBasicInfo"
+ETF_PRICE_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 
 
 class ETFAnalyzer:
@@ -91,9 +92,22 @@ class ETFAnalyzer:
                 'Accept': 'application/json',
                 'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
                 'Connection': 'keep-alive',
-                'Referer': 'https://www.twse.com.tw/zh/ETF/etfBasicInfo'
+                'Referer': 'https://www.twse.com.tw/rwd/zh/ETF/etfBasicInfo'
             }
+            
+            # 獲取 ETF 價格資訊
+            price_url = f"{ETF_PRICE_URL}?ex_ch=tse_{etf_code}.tw"
+            price_response = requests.get(price_url)
+            if price_response.status_code == 200:
+                price_data = price_response.json()
+                if price_data.get('msgArray') and len(price_data['msgArray']) > 0:
+                    price_info = price_data['msgArray'][0]
+                else:
+                    price_info = None
+            else:
+                price_info = None
 
+            # 獲取 ETF 基本資訊
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
 
@@ -108,37 +122,40 @@ class ETFAnalyzer:
                 logger.error(f"解析 API 回應失敗：{str(e)}")
                 return None
 
-            if not data:
-                logger.error(f"API 返回空資料：{etf_code}")
+            if not data or not isinstance(data, dict) or 'data' not in data or not data['data']:
+                logger.error(f"API 返回無效資料：{etf_code}")
                 return None
 
-            # 獲取 ETF 價格資訊
-            price_url = f"{TWSE_API_URL}?ex_ch=tse_{etf_code}.tw"
-            price_response = requests.get(
-                price_url, headers=headers, timeout=10)
-            price_response.raise_for_status()
-            price_data = price_response.json()
+            # 解析基本資訊
+            etf_data = data['data'][0]
+            etf_name = etf_data[0] if etf_data else self.etf_list.get(etf_code, f'ETF_{etf_code}')
+            
+            # 解析價格資訊
+            if price_info:
+                price = float(price_info.get('z', 0))
+                change = float(price_info.get('z', 0)) - float(price_info.get('y', 0)) if price_info.get('z') and price_info.get('y') else 0
+                volume = int(price_info.get('v', 0))
+            else:
+                price = 0
+                change = 0
+                volume = 0
 
-            if not price_data or 'msgArray' not in price_data or not price_data['msgArray']:
-                logger.error(f"無法獲取 ETF {etf_code} 的價格資訊")
-                return None
-
-            price_info = price_data['msgArray'][0]
-
-            # 從預設列表中獲取 ETF 名稱
-            etf_name = self.etf_list.get(etf_code, None)
-            if not etf_name:
-                # 如果預設列表中沒有，嘗試從 API 回應中獲取
-                etf_name = data.get('name', f'ETF_{etf_code}')
+            # 解析費率和殖利率
+            try:
+                yield_rate = float(etf_data[3].replace('%', '')) if len(etf_data) > 3 and etf_data[3] else 0
+                expense_ratio = float(etf_data[4].replace('%', '')) if len(etf_data) > 4 and etf_data[4] else 0
+            except (ValueError, IndexError):
+                yield_rate = 0
+                expense_ratio = 0
 
             return {
                 'etf_code': etf_code,
                 'name': etf_name,
-                'price': float(price_info.get('z', 0)),
-                'change': float(price_info.get('change', 0)),
-                'volume': int(price_info.get('v', 0)),
-                'yield_rate': float(data.get('yield_rate', 0)),
-                'expense_ratio': float(data.get('expense_ratio', 0)),
+                'price': price,
+                'change': change,
+                'volume': volume,
+                'yield_rate': yield_rate,
+                'expense_ratio': expense_ratio,
                 'timestamp': datetime.now()
             }
 
