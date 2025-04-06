@@ -37,13 +37,9 @@ def get_stock_info(stock_code: str) -> dict:
         response.raise_for_status()
         data = response.json()
 
-        if not isinstance(data, dict):
-            logger.error(f"API 返回的資料格式不正確：{type(data)}")
+        if not isinstance(data, dict) or 'msgArray' not in data or not data['msgArray']:
+            logger.error(f"API 返回的資料格式不正確：{data}")
             return {'error': 'API 返回的資料格式不正確'}
-
-        if 'msgArray' not in data or not data['msgArray']:
-            logger.error(f"無法從證交所獲取股票 {stock_code} 的資訊")
-            return {'error': f'無法獲取股票 {stock_code} 的資訊'}
 
         stock_data = data['msgArray'][0]
 

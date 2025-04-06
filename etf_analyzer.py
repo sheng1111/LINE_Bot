@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from database import db
 import pandas as pd
 import time
+import json
 
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
@@ -76,6 +77,78 @@ class ETFAnalyzer:
 
         return {}  # 所有重試都失敗後返回空字典
 
+    def _fetch_etf_info(self, etf_code: str) -> Optional[Dict]:
+        """
+        從證交所 API 獲取 ETF 資訊
+        :param etf_code: ETF 代碼
+        :return: ETF 資訊字典
+        """
+        try:
+            # 獲取 ETF 基本資訊
+            url = f"{ETF_INFO_URL}?stockNo={etf_code}"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Connection': 'keep-alive',
+                'Referer': 'https://www.twse.com.tw/zh/ETF/etfBasicInfo'
+            }
+
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+
+            # 檢查回應內容
+            if not response.text.strip():
+                logger.error(f"API 返回空資料：{etf_code}")
+                return None
+
+            try:
+                data = response.json()
+            except json.JSONDecodeError as e:
+                logger.error(f"解析 API 回應失敗：{str(e)}")
+                return None
+
+            if not data:
+                logger.error(f"API 返回空資料：{etf_code}")
+                return None
+
+            # 獲取 ETF 價格資訊
+            price_url = f"{TWSE_API_URL}?ex_ch=tse_{etf_code}.tw"
+            price_response = requests.get(
+                price_url, headers=headers, timeout=10)
+            price_response.raise_for_status()
+            price_data = price_response.json()
+
+            if not price_data or 'msgArray' not in price_data or not price_data['msgArray']:
+                logger.error(f"無法獲取 ETF {etf_code} 的價格資訊")
+                return None
+
+            price_info = price_data['msgArray'][0]
+
+            # 從預設列表中獲取 ETF 名稱
+            etf_name = self.etf_list.get(etf_code, None)
+            if not etf_name:
+                # 如果預設列表中沒有，嘗試從 API 回應中獲取
+                etf_name = data.get('name', f'ETF_{etf_code}')
+
+            return {
+                'etf_code': etf_code,
+                'name': etf_name,
+                'price': float(price_info.get('z', 0)),
+                'change': float(price_info.get('change', 0)),
+                'volume': int(price_info.get('v', 0)),
+                'yield_rate': float(data.get('yield_rate', 0)),
+                'expense_ratio': float(data.get('expense_ratio', 0)),
+                'timestamp': datetime.now()
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"API 請求失敗：{str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"獲取 ETF 資訊時發生錯誤：{str(e)}")
+            return None
+
     def get_etf_info(self, etf_code: str) -> Dict:
         """
         取得 ETF 基本資訊
@@ -111,52 +184,7 @@ class ETFAnalyzer:
                 return etf_data
 
             # 如果資料庫沒有，從證交所 API 獲取
-            def _fetch_etf_info(code):
-                try:
-                    # 獲取 ETF 基本資訊
-                    response = requests.get(f"{ETF_INFO_URL}?stockNo={code}")
-                    response.raise_for_status()
-                    data = response.json()
-
-                    # 獲取 ETF 價格資訊
-                    url = f"{TWSE_API_URL}?ex_ch=tse_{code}.tw"
-                    headers = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                        'Accept': 'application/json',
-                        'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-                        'Connection': 'keep-alive',
-                        'Referer': 'https://mis.twse.com.tw/stock/index.jsp'
-                    }
-                    price_response = requests.get(url, headers=headers)
-                    price_data = price_response.json()
-
-                    if not data or not price_data:
-                        raise ValueError("API 返回空資料")
-
-                    # 從預設列表中獲取 ETF 名稱
-                    etf_name = self.etf_list.get(code, None)
-                    if not etf_name:
-                        # 如果預設列表中沒有，嘗試從 API 回應中獲取
-                        etf_name = data.get('name', f'ETF_{code}')
-
-                    return {
-                        'etf_code': code,
-                        'name': etf_name,
-                        'price': float(price_data.get('data', [{}])[0].get('close', 0)),
-                        'change': float(price_data.get('data', [{}])[0].get('change', 0)),
-                        'volume': int(price_data.get('data', [{}])[0].get('volume', 0)),
-                        'yield_rate': float(data.get('yield_rate', 0)),
-                        'expense_ratio': float(data.get('expense_ratio', 0)),
-                        'timestamp': datetime.now()
-                    }
-                except requests.exceptions.RequestException as e:
-                    logger.error(f"API 請求失敗：{str(e)}")
-                    return None
-                except (ValueError, KeyError, IndexError) as e:
-                    logger.error(f"解析 API 回應失敗：{str(e)}")
-                    return None
-
-            etf_data = self._get_with_retry(etf_code, _fetch_etf_info)
+            etf_data = self._get_with_retry(etf_code, self._fetch_etf_info)
 
             if not etf_data:
                 return {'error': f'無法獲取 ETF {etf_code} 的資訊，請確認代碼是否正確'}
