@@ -54,33 +54,53 @@ class GeminiClient:
         self.chat = model.start_chat(history=[])
         self.chat.send_message(SYSTEM_PROMPT)
         self.last_request_time = {}  # 用於速率限制
-        self.rate_limit = 5  # 5 秒內只能發送一次請求
+        self.rate_limit = 1  # 1 秒內只能發送一次請求
         self.cache = {}  # 用於快取
-        self.cache_timeout = 60  # 快取超時時間（秒）
+        self.cache_timeout = 300  # 快取超時時間（秒）
+        self.max_cache_size = 1000  # 最大快取數量
+
+    def _clean_cache(self):
+        """清理過期的快取"""
+        current_time = datetime.now()
+        expired_keys = [
+            key for key, value in self.cache.items()
+            if (current_time - value['timestamp']).total_seconds() > self.cache_timeout
+        ]
+        for key in expired_keys:
+            del self.cache[key]
+
+        # 如果快取數量超過限制，刪除最舊的項目
+        if len(self.cache) > self.max_cache_size:
+            sorted_cache = sorted(
+                self.cache.items(),
+                key=lambda x: x[1]['timestamp']
+            )
+            for key, _ in sorted_cache[:len(self.cache) - self.max_cache_size]:
+                del self.cache[key]
+
+    def _get_cache_key(self, prompt: str, user_id: str = None) -> str:
+        """生成快取鍵值"""
+        return f"response_{user_id}_{hash(prompt)}" if user_id else f"response_{hash(prompt)}"
 
     def generate_response(self, prompt: str, user_id: str = None) -> str:
-        """
-        生成回應
-        :param prompt: 提示詞
-        :param user_id: 使用者 ID
-        :return: 生成的回應
-        """
+        """生成回應"""
         try:
+            # 清理過期快取
+            self._clean_cache()
+
             # 檢查快取
-            if user_id:
-                cache_key = f"response_{user_id}_{hash(prompt)}"
-                if cache_key in self.cache:
-                    cache_data = self.cache[cache_key]
-                    if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
-                        return cache_data['data']
+            cache_key = self._get_cache_key(prompt, user_id)
+            if cache_key in self.cache:
+                cache_data = self.cache[cache_key]
+                if (datetime.now() - cache_data['timestamp']).total_seconds() < self.cache_timeout:
+                    return cache_data['data']
 
             # 檢查速率限制
             current_time = time.time()
             if user_id in self.last_request_time:
                 time_diff = current_time - self.last_request_time[user_id]
                 if time_diff < self.rate_limit:
-                    wait_time = int(self.rate_limit - time_diff)
-                    return f"請等待 {wait_time} 秒後再發送問題。"
+                    return f"系統正在處理中，請稍候再試。"
 
             # 更新最後請求時間
             self.last_request_time[user_id] = current_time
@@ -101,17 +121,16 @@ class GeminiClient:
             result = response.text
 
             # 更新快取
-            if user_id:
-                self.cache[cache_key] = {
-                    'data': result,
-                    'timestamp': datetime.now()
-                }
+            self.cache[cache_key] = {
+                'data': result,
+                'timestamp': datetime.now()
+            }
 
             return result
 
         except Exception as e:
             logger.error(f"生成回應時發生錯誤：{str(e)}")
-            return f"抱歉，生成回應時發生錯誤：{str(e)}"
+            return f"抱歉，系統暫時無法處理您的請求，請稍後再試。"
 
     def _is_investment_related(self, message: str) -> bool:
         """

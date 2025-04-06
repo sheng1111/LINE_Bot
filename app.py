@@ -500,39 +500,24 @@ async def process_message(user_id, message, reply_token, max_retries=3):
         支援的指令類型：
         1. STOCK_QUERY - 查詢股票資訊（參數：股票代碼）
         2. STOCK_ANALYSIS - 股票分析（參數：股票代碼）
-        3. MARKET_NEWS - 查看市場新聞（無參數）
-        4. MARKET_RANKING - 查看市場排行（無參數）
-        5. TECHNICAL_ANALYSIS - 技術分析（參數：股票代碼）
-        6. CHIP_ANALYSIS - 籌碼分析（參數：股票代碼）
-        7. HISTORY_QUERY - 歷史資料查詢（參數：股票代碼）
-        8. PORTFOLIO - 投資組合（無參數）
-        9. PRICE_ALERT - 設定提醒（參數：股票代碼 價格）
-        10. GENERAL_QUERY - 一般問答（無參數）
+        3. TECHNICAL_ANALYSIS - 技術分析（參數：股票代碼）
+        4. ETF_OVERLAP - ETF 重疊分析（參數：ETF代碼1 ETF代碼2）
+        5. MARKET_NEWS - 查看市場新聞（無參數）
+        6. MARKET_RANKING - 查看市場排行（無參數）
+        7. CHIP_ANALYSIS - 籌碼分析（參數：股票代碼）
+        8. PRICE_ALERT - 設定提醒（參數：股票代碼 價格）
+        9. GENERAL_QUERY - 一般問答（無參數）
 
         請根據以下規則判斷：
         - 如果只是查詢股票現況，使用 STOCK_QUERY
         - 如果要求分析股票，使用 STOCK_ANALYSIS
+        - 如果要求技術分析，使用 TECHNICAL_ANALYSIS
+        - 如果要求 ETF 重疊分析，使用 ETF_OVERLAP
         - 如果無法確定，使用 GENERAL_QUERY
 
         請只返回如下格式：
         COMMAND:對應指令
         PARAMS:參數（如果有多個參數用空格分隔）
-
-        例如：
-        輸入："台積電現在多少錢？"
-        返回：
-        COMMAND:STOCK_QUERY
-        PARAMS:2330
-
-        輸入："分析台積電"
-        返回：
-        COMMAND:STOCK_ANALYSIS
-        PARAMS:2330
-
-        輸入："最近有什麼重要新聞嗎？"
-        返回：
-        COMMAND:MARKET_NEWS
-        PARAMS:
         """
 
         # 獲取意圖分析結果
@@ -574,25 +559,85 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                 else:
                     response = "抱歉，無法獲取該股票資訊。"
 
+            elif command == 'TECHNICAL_ANALYSIS' and params:
+                # 處理技術分析
+                tech_data = twse_api.calculate_technical_indicators(params)
+                if tech_data:
+                    response = f"【{params} 技術分析】\n\n"
+                    response += f"5日均線: {tech_data['ma5'][-1]:.2f}\n"
+                    response += f"10日均線: {tech_data['ma10'][-1]:.2f}\n"
+                    response += f"20日均線: {tech_data['ma20'][-1]:.2f}\n"
+                    response += f"KD值: K={tech_data['kd']['k'][-1]:.2f}, D={tech_data['kd']['d'][-1]:.2f}\n"
+                    response += f"RSI: {tech_data['rsi'][-1]:.2f}\n"
+
+                    # 加入趨勢判斷
+                    ma5 = tech_data['ma5'][-1]
+                    ma20 = tech_data['ma20'][-1]
+                    k = tech_data['kd']['k'][-1]
+                    d = tech_data['kd']['d'][-1]
+                    rsi = tech_data['rsi'][-1]
+
+                    response += "\n趨勢分析：\n"
+                    if ma5 > ma20:
+                        response += "- 短期均線突破長期均線，呈現上升趨勢\n"
+                    elif ma5 < ma20:
+                        response += "- 短期均線跌破長期均線，呈現下降趨勢\n"
+
+                    if k > d:
+                        response += "- KD 指標顯示可能處於超買區\n"
+                    elif k < d:
+                        response += "- KD 指標顯示可能處於超賣區\n"
+
+                    if rsi > 70:
+                        response += "- RSI 指標顯示可能處於超買區\n"
+                    elif rsi < 30:
+                        response += "- RSI 指標顯示可能處於超賣區\n"
+                else:
+                    response = "抱歉，無法獲取技術分析資料。"
+
+            elif command == 'ETF_OVERLAP' and params:
+                # 處理 ETF 重疊分析
+                etf_codes = params.split()
+                if len(etf_codes) == 2:
+                    holdings1 = twse_api.get_etf_holdings(etf_codes[0])
+                    holdings2 = twse_api.get_etf_holdings(etf_codes[1])
+
+                    if holdings1 and holdings2:
+                        # 計算重疊成分股
+                        overlap = set(holdings1) & set(holdings2)
+
+                        response = f"【{etf_codes[0]} 和 {etf_codes[1]} 重疊分析】\n\n"
+                        response += f"重疊成分股數量：{len(overlap)}\n\n"
+                        response += "重疊成分股：\n"
+                        for stock in sorted(overlap):
+                            response += f"- {stock}\n"
+
+                        # 計算重疊率
+                        overlap_ratio = len(overlap) / \
+                            min(len(holdings1), len(holdings2))
+                        response += f"\n重疊率：{overlap_ratio:.2%}"
+                    else:
+                        response = "抱歉，無法獲取 ETF 成分股資料。"
+                else:
+                    response = "請提供兩個 ETF 代碼進行比較。"
+
             elif command == 'MARKET_NEWS':
                 news = twse_api.get_market_news()
                 if news:
-                    message = "市場重要新聞：\n\n"
+                    response = "市場重要新聞：\n\n"
                     for i, item in enumerate(news[:5], 1):
-                        message += f"{i}. {item['title']}\n"
-                        message += f"   {item['date']}\n\n"
-                    response = message
+                        response += f"{i}. {item['title']}\n"
+                        response += f"   {item['date']}\n\n"
                 else:
                     response = "目前沒有最新新聞。"
 
             elif command == 'MARKET_RANKING':
                 rankings = twse_api.get_stock_ranking()
                 if rankings:
-                    message = "市場排行：\n\n"
-                    message += "成交量排行：\n"
+                    response = "市場排行：\n\n"
+                    response += "成交量排行：\n"
                     for i, stock in enumerate(rankings.get('volume', [])[:5], 1):
-                        message += f"{i}. {stock['code']} {stock['name']} {stock['volume']:,}\n"
-                    response = message
+                        response += f"{i}. {stock['code']} {stock['name']} {stock['volume']:,}\n"
                 else:
                     response = "無法獲取市場排行資訊。"
 

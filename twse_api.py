@@ -50,8 +50,31 @@ class TWSEAPI:
 
     def _get_mock_data(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """獲取模擬資料"""
-        # 根據不同的端點返回不同的模擬資料
-        if 'stock/technical' in endpoint:
+        if 'etfComposition' in endpoint:
+            return [
+                {'code': '2330', 'name': '台積電', 'weight': 25.5},
+                {'code': '2317', 'name': '鴻海', 'weight': 15.2},
+                {'code': '2454', 'name': '聯發科', 'weight': 12.8}
+            ]
+        elif 'stockInfo' in endpoint:
+            return {
+                'code': params.get('stock_code', '2330'),
+                'name': '模擬股票',
+                'price': 550.0,
+                'change': 2.5,
+                'volume': 15000,
+                'high': 552.0,
+                'low': 548.0,
+                'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        elif 'marketStats' in endpoint:
+            return {
+                'taiex': 17500.5,
+                'change': 52.3,
+                'volume': 250000,
+                'date': datetime.now().strftime("%Y-%m-%d")
+            }
+        elif 'stock/technical' in endpoint:
             return {
                 'price': 550.0,
                 'change': 2.5,
@@ -203,6 +226,54 @@ class TWSEAPI:
         rsi = 100 - (100 / (1 + rs))
 
         return rsi.tolist()
+
+    def get_etf_holdings(self, etf_code: str) -> Optional[List[str]]:
+        """獲取 ETF 成分股"""
+        try:
+            endpoint = f"exchangeReport/etfComposition/{etf_code}"
+            data = self._make_request(endpoint)
+            if data and isinstance(data, list):
+                return [item.get('code') for item in data if item.get('code')]
+            return None
+        except Exception as e:
+            logger.error(f"獲取 ETF 成分股失敗: {str(e)}")
+            return None
+
+    def get_stock_info(self, stock_code: str) -> Optional[Dict]:
+        """獲取股票即時資訊"""
+        try:
+            endpoint = f"exchangeReport/stockInfo/{stock_code}"
+            return self._make_request(endpoint)
+        except Exception as e:
+            logger.error(f"獲取股票資訊失敗: {str(e)}")
+            return None
+
+    def get_market_stats(self) -> Optional[Dict]:
+        """獲取大盤統計資訊"""
+        try:
+            endpoint = "exchangeReport/marketStats"
+            return self._make_request(endpoint)
+        except Exception as e:
+            logger.error(f"獲取大盤統計失敗: {str(e)}")
+            return None
+
+    def get_stock_day_avg(self, stock_code: str) -> Optional[Dict]:
+        """獲取股票日均價"""
+        try:
+            endpoint = f"exchangeReport/stockDayAvg/{stock_code}"
+            return self._make_request(endpoint)
+        except Exception as e:
+            logger.error(f"獲取股票日均價失敗: {str(e)}")
+            return None
+
+    def get_stock_day_all(self) -> Optional[Dict]:
+        """獲取所有股票日成交資訊"""
+        try:
+            endpoint = "exchangeReport/stockDayAll"
+            return self._make_request(endpoint)
+        except Exception as e:
+            logger.error(f"獲取所有股票日成交資訊失敗: {str(e)}")
+            return None
 
 
 # 建立實例並匯出
