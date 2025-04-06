@@ -240,6 +240,107 @@ class TWSEAPI:
             logger.error(f"獲取公司財務報表失敗: {str(e)}")
             raise Exception(f"無法獲取公司 {stock_code} 的財務報表: {str(e)}")
 
+    def calculate_technical_indicators(self, stock_code: str) -> dict:
+        """
+        計算股票的技術指標
+        :param stock_code: 股票代碼
+        :return: 包含技術指標的字典
+        """
+        try:
+            # 獲取股票歷史資料
+            url = f"https://www.twse.com.tw/exchangeReport/STOCK_DAY"
+            params = {
+                "response": "json",
+                "date": datetime.now().strftime("%Y%m%d"),
+                "stockNo": stock_code
+            }
+
+            response = self._make_request(url, params)
+            if not response or not response.get("data"):
+                return None
+
+            # 解析歷史資料
+            data = response["data"]
+            closes = [float(row[6]) for row in data]  # 收盤價
+
+            # 計算移動平均線
+            ma5 = sum(closes[-5:]) / 5 if len(closes) >= 5 else None
+            ma10 = sum(closes[-10:]) / 10 if len(closes) >= 10 else None
+            ma20 = sum(closes[-20:]) / 20 if len(closes) >= 20 else None
+
+            # 計算 KD 值
+            k, d = self._calculate_kd(closes)
+
+            # 計算 RSI
+            rsi = self._calculate_rsi(closes)
+
+            return {
+                "ma5": ma5,
+                "ma10": ma10,
+                "ma20": ma20,
+                "kd": {"k": k, "d": d},
+                "rsi": rsi
+            }
+
+        except Exception as e:
+            logger.error(f"計算技術指標時發生錯誤：{str(e)}")
+            return None
+
+    def _calculate_kd(self, closes: list) -> tuple:
+        """
+        計算 KD 值
+        :param closes: 收盤價列表
+        :return: (K值, D值)
+        """
+        if len(closes) < 9:
+            return None, None
+
+        # 計算 RSV
+        rsvs = []
+        for i in range(8, len(closes)):
+            high = max(closes[i-8:i+1])
+            low = min(closes[i-8:i+1])
+            close = closes[i]
+            rsv = (close - low) / (high - low) * 100 if high != low else 50
+            rsvs.append(rsv)
+
+        # 計算 K 值和 D 值
+        k = 50
+        d = 50
+        for rsv in rsvs:
+            k = k * 2/3 + rsv * 1/3
+            d = d * 2/3 + k * 1/3
+
+        return k, d
+
+    def _calculate_rsi(self, closes: list, period: int = 14) -> float:
+        """
+        計算 RSI
+        :param closes: 收盤價列表
+        :param period: RSI 週期
+        :return: RSI 值
+        """
+        if len(closes) < period + 1:
+            return None
+
+        # 計算價格變動
+        changes = [closes[i] - closes[i-1] for i in range(1, len(closes))]
+
+        # 計算上漲和下跌的平均值
+        gains = [change if change > 0 else 0 for change in changes]
+        losses = [-change if change < 0 else 0 for change in changes]
+
+        avg_gain = sum(gains[-period:]) / period
+        avg_loss = sum(losses[-period:]) / period
+
+        # 計算 RSI
+        if avg_loss == 0:
+            return 100
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+
+        return rsi
+
 
 # 建立實例並匯出
 twse_api = TWSEAPI()

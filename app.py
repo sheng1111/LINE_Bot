@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 import uvicorn
 from database import db
 from gemini_client import gemini
-from stock_analyzer import analyzer
+from stock_analyzer import analyzer as stock_analyzer
 from etf_analyzer import analyzer as etf_analyzer
 from daily_recommender import DailyRecommender
 from dividend_analyzer import analyzer as dividend_analyzer
@@ -213,103 +213,119 @@ async def _handle_message_async(event):
 
         # 根據意圖執行對應功能
         if command == 'STOCK_QUERY' and params:
-            stock_info = get_stock_info(params)
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=format_stock_info(stock_info))]
-                )
-            )
+            try:
+                # 獲取股票基本資訊
+                stock_info = get_stock_info(params)
+                if stock_info:
+                    # 使用 stock_analyzer 進行分析
+                    analysis = stock_analyzer.analyze_stock(params)
+                    if analysis:
+                        # 結合基本資訊和分析結果
+                        response = format_stock_info(
+                            stock_info) + "\n\n📊 技術分析：\n" + analysis
+                    else:
+                        response = format_stock_info(stock_info)
+                else:
+                    response = f"無法獲取股票 {params} 的資訊，請確認股票代碼是否正確。"
+            except Exception as e:
+                logger.error(f"獲取股票資訊時發生錯誤：{str(e)}")
+                response = f"獲取股票 {params} 資訊時發生錯誤，請稍後再試。"
         elif command == 'ETF_ANALYSIS' and params:
-            result = etf_analyzer.analyze_etf(params)
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=result)]
-                )
-            )
+            try:
+                result = etf_analyzer.analyze_etf(params)
+                response = result if result else f"無法分析 ETF {params}，請確認 ETF 代碼是否正確。"
+            except Exception as e:
+                logger.error(f"分析 ETF 時發生錯誤：{str(e)}")
+                response = f"分析 ETF {params} 時發生錯誤，請稍後再試。"
         elif command == 'DIVIDEND_ANALYSIS' and params:
-            result = dividend_analyzer.analyze_dividend(params)
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=result)]
-                )
-            )
+            try:
+                result = dividend_analyzer.analyze_dividend(params)
+                response = result if result else f"無法分析股票 {params} 的除權息資訊，請確認股票代碼是否正確。"
+            except Exception as e:
+                logger.error(f"分析除權息時發生錯誤：{str(e)}")
+                response = f"分析股票 {params} 的除權息資訊時發生錯誤，請稍後再試。"
         elif command == 'PEER_COMPARISON' and params:
-            result = comparator.compare_stocks(params)
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=result)]
-                )
-            )
+            try:
+                result = comparator.compare_stocks(params)
+                response = result if result else f"無法比較股票 {params}，請確認股票代碼是否正確。"
+            except Exception as e:
+                logger.error(f"比較股票時發生錯誤：{str(e)}")
+                response = f"比較股票 {params} 時發生錯誤，請稍後再試。"
         elif command == 'FUTURES_INFO':
-            futures_info = get_futures_info()
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(
-                        text=format_futures_info(futures_info))]
-                )
-            )
+            try:
+                futures_info = get_futures_info()
+                response = format_futures_info(
+                    futures_info) if futures_info else "無法獲取台指期資訊，請稍後再試。"
+            except Exception as e:
+                logger.error(f"獲取台指期資訊時發生錯誤：{str(e)}")
+                response = "獲取台指期資訊時發生錯誤，請稍後再試。"
         elif command == 'ETF_OVERLAP' and params:
-            etf_codes = params.split(',')
-            analysis = await analyze_etf_overlap(etf_codes)
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=analysis)]
-                )
-            )
+            try:
+                etf_codes = params.split(',')
+                analysis = await analyze_etf_overlap(etf_codes)
+                response = analysis if analysis else f"無法分析 ETF {params} 的重疊情況，請確認 ETF 代碼是否正確。"
+            except Exception as e:
+                logger.error(f"分析 ETF 重疊時發生錯誤：{str(e)}")
+                response = f"分析 ETF {params} 的重疊情況時發生錯誤，請稍後再試。"
         elif command == 'MARKET_NEWS':
-            news = twse_api.get_market_news()
-            if news:
-                response = "📰 最新市場新聞：\n\n"
-                for item in news[:5]:  # 只顯示最新的 5 則新聞
-                    response += f"📌 {item['title']}\n"
-                    response += f"🔗 {item['link']}\n"
-                    response += f"⏰ {item['pubDate']}\n\n"
-            else:
-                response = "目前沒有最新市場新聞。"
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=response)]
-                )
-            )
+            try:
+                news = twse_api.get_market_news()
+                if news:
+                    response = "📰 最新市場新聞：\n\n"
+                    for item in news[:5]:  # 只顯示最新的 5 則新聞
+                        response += f"📌 {item['title']}\n"
+                        response += f"🔗 {item['link']}\n"
+                        response += f"⏰ {item['pubDate']}\n\n"
+                else:
+                    response = "目前沒有最新市場新聞。"
+            except Exception as e:
+                logger.error(f"獲取市場新聞時發生錯誤：{str(e)}")
+                response = "獲取市場新聞時發生錯誤，請稍後再試。"
         elif command == 'STOCK_NEWS' and params:
-            news = twse_api.get_stock_news(params)
-            if news:
-                response = f"📰 {params} 最新新聞：\n\n"
-                for item in news[:5]:  # 只顯示最新的 5 則新聞
-                    response += f"📌 {item['title']}\n"
-                    response += f"🔗 {item['link']}\n"
-                    response += f"⏰ {item['pubDate']}\n\n"
-            else:
-                response = f"目前沒有 {params} 的最新新聞。"
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=response)]
-                )
-            )
+            try:
+                news = twse_api.get_stock_news(params)
+                if news:
+                    response = f"📰 {params} 最新新聞：\n\n"
+                    for item in news[:5]:  # 只顯示最新的 5 則新聞
+                        response += f"📌 {item['title']}\n"
+                        response += f"🔗 {item['link']}\n"
+                        response += f"⏰ {item['pubDate']}\n\n"
+                else:
+                    response = f"目前沒有 {params} 的最新新聞。"
+            except Exception as e:
+                logger.error(f"獲取個股新聞時發生錯誤：{str(e)}")
+                response = f"獲取股票 {params} 的新聞時發生錯誤，請稍後再試。"
         else:
             # 使用 LLM 處理一般問答
-            response = await process_message(user_id, user_message, event.reply_token)
-            await line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(text=response)]
-                )
+            try:
+                response = await process_message(user_id, user_message, event.reply_token)
+                if not response:
+                    response = "抱歉，我無法理解您的問題，請換個方式詢問。"
+            except Exception as e:
+                logger.error(f"處理一般問答時發生錯誤：{str(e)}")
+                response = "處理您的問題時發生錯誤，請稍後再試。"
+
+        # 確保 response 不為 None
+        if not response:
+            response = "抱歉，發生未知錯誤，請稍後再試。"
+
+        # 發送回應
+        await line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=response)]
             )
+        )
+
     except Exception as e:
         logger.error(f"處理訊息時發生錯誤：{str(e)}", exc_info=True)
         try:
+            # 確保錯誤訊息不為 None
+            error_message = "抱歉，處理您的請求時發生錯誤，請稍後再試。"
             await line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="抱歉，處理您的請求時發生錯誤，請稍後再試。")]
+                    messages=[TextMessage(text=error_message)]
                 )
             )
         except Exception as reply_error:
