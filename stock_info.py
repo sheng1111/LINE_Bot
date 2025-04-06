@@ -13,10 +13,17 @@ twse_api = TWSEAPI()
 
 def get_stock_info(stock_code: str) -> dict:
     """
-    從台灣證券交易所獲取股票資訊
+    獲取股票即時資訊
+    :param stock_code: 股票代碼
+    :return: 股票資訊字典
     """
     try:
-        # 獲取即時行情
+        # 檢查股票代碼是否有效
+        if not stock_code.isdigit() or len(stock_code) != 4:
+            logger.error(f"無效的股票代碼格式：{stock_code}")
+            return {'error': f'無效的股票代碼格式：{stock_code}'}
+
+        # 獲取股票資訊
         url = f"{TWSE_API_URL}?ex_ch=tse_{stock_code}.tw"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -30,56 +37,67 @@ def get_stock_info(stock_code: str) -> dict:
         response.raise_for_status()
         data = response.json()
 
-        if 'msgArray' in data and len(data['msgArray']) > 0:
-            stock_data = data['msgArray'][0]
+        if not isinstance(data, dict):
+            logger.error(f"API 返回的資料格式不正確：{type(data)}")
+            return {'error': 'API 返回的資料格式不正確'}
 
-            # 計算漲跌
-            current_price = float(stock_data.get('z', 0))
-            yesterday_price = float(stock_data.get('y', 0))
-            change = current_price - yesterday_price
-            change_percent = (change / yesterday_price *
-                              100) if yesterday_price > 0 else 0
-
-            # 獲取基本面資料
-            fundamental = twse_api.get_stock_fundamental(stock_code)
-
-            # 獲取技術指標
-            technical = twse_api.calculate_technical_indicators(stock_code)
-
-            # 獲取法人買賣超
-            institutional = twse_api.get_institutional_investors(stock_code)
-
-            # 獲取融資融券
-            margin = twse_api.get_margin_trading(stock_code)
-
-            return {
-                "name": stock_data.get('n', '未知'),
-                "current_price": current_price,
-                "yesterday_price": yesterday_price,
-                "day_high": float(stock_data.get('h', 0)),
-                "day_low": float(stock_data.get('l', 0)),
-                "volume": int(stock_data.get('v', 0)),
-                "change": change,
-                "change_percent": change_percent,
-                "open_price": float(stock_data.get('o', 0)),
-                "trading_value": float(stock_data.get('tv', 0)),  # 成交金額
-                "trading_volume": int(stock_data.get('v', 0)),    # 成交股數
-                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "status": stock_data.get('s', '正常交易'),  # 交易狀態
-                "fundamental": fundamental,  # 基本面資料
-                "technical": technical,      # 技術指標
-                "institutional": institutional,  # 法人買賣超
-                "margin": margin            # 融資融券
-            }
-        else:
+        if 'msgArray' not in data or not data['msgArray']:
             logger.error(f"無法從證交所獲取股票 {stock_code} 的資訊")
-            return None
+            return {'error': f'無法獲取股票 {stock_code} 的資訊'}
+
+        stock_data = data['msgArray'][0]
+
+        def safe_float(value, default=0):
+            try:
+                return float(value) if value != '-' else default
+            except (ValueError, TypeError):
+                return default
+
+        # 計算漲跌
+        current_price = safe_float(stock_data.get('z', 0))
+        yesterday_price = safe_float(stock_data.get('y', 0))
+        change = current_price - yesterday_price
+        change_percent = (change / yesterday_price *
+                          100) if yesterday_price > 0 else 0
+
+        # 獲取基本面資料
+        fundamental = twse_api.get_stock_fundamental(stock_code)
+
+        # 獲取技術指標
+        technical = twse_api.calculate_technical_indicators(stock_code)
+
+        # 獲取法人買賣超
+        institutional = twse_api.get_institutional_investors(stock_code)
+
+        # 獲取融資融券
+        margin = twse_api.get_margin_trading(stock_code)
+
+        return {
+            "name": stock_data.get('n', '未知'),
+            "code": stock_code,
+            "current_price": current_price,
+            "yesterday_price": yesterday_price,
+            "day_high": safe_float(stock_data.get('h', 0)),
+            "day_low": safe_float(stock_data.get('l', 0)),
+            "volume": int(safe_float(stock_data.get('v', 0))),
+            "change": change,
+            "change_percent": change_percent,
+            "open_price": safe_float(stock_data.get('o', 0)),
+            "trading_value": safe_float(stock_data.get('tv', 0)),
+            "trading_volume": int(safe_float(stock_data.get('v', 0))),
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": stock_data.get('s', '正常交易'),
+            "fundamental": fundamental,
+            "technical": technical,
+            "institutional": institutional,
+            "margin": margin
+        }
     except requests.exceptions.RequestException as e:
         logger.error(f"從證交所獲取股票 {stock_code} 資訊時發生網路錯誤: {str(e)}")
-        return None
+        return {'error': f'網路錯誤：{str(e)}'}
     except Exception as e:
         logger.error(f"從證交所獲取股票 {stock_code} 資訊時發生錯誤: {str(e)}")
-        return None
+        return {'error': f'系統錯誤：{str(e)}'}
 
 
 def format_stock_info(stock_info: dict) -> str:
