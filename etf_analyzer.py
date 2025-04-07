@@ -214,23 +214,24 @@ class ETFAnalyzer:
                 logger.error(f"無效的 ETF 代碼格式：{etf_code}")
                 return {'error': f'無效的 ETF 代碼格式：{etf_code}'}
 
-            # 檢查快取
-            if etf_code in self.cache:
+            # 檢查快取 (對熱門ETF總是獲取最新數據)
+            if etf_code in self.cache and etf_code not in self.popular_etfs:
                 cache_data = self.cache[etf_code]
                 if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
                     return cache_data['data']
 
-            # 從資料庫查詢
-            collection = db.get_collection('etf_info')
-            etf_data = collection.find_one({'etf_code': etf_code})
+            # 從資料庫查詢 (對熱門ETF跳過此步驟)
+            if etf_code not in self.popular_etfs:
+                collection = db.get_collection('etf_info')
+                etf_data = collection.find_one({'etf_code': etf_code})
 
-            if etf_data:
-                # 更新快取
-                self.cache[etf_code] = {
-                    'data': etf_data,
-                    'timestamp': datetime.now()
-                }
-                return etf_data
+                if etf_data:
+                    # 更新快取
+                    self.cache[etf_code] = {
+                        'data': etf_data,
+                        'timestamp': datetime.now()
+                    }
+                    return etf_data
 
             # 從即時行情 API 獲取價格資訊
             price_url = f"{ETF_PRICE_URL}?ex_ch=tse_{original_code}.tw"

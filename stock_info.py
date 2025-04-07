@@ -435,48 +435,101 @@ def format_stock_info(stock_info: dict) -> str:
         if isinstance(fundamental, dict) and len(fundamental) > 1:  # 確保不是空字典或只有type欄位
             message += f"""
 基本面分析
-本益比: {fundamental.get('pe_ratio', 'N/A')}
-殖利率: {fundamental.get('dividend_yield', 'N/A')}%
-每股盈餘: {fundamental.get('eps', 'N/A')}
+本益比: {fundamental.get('pe_ratio', 0):.2f}
+殖利率: {fundamental.get('dividend_yield', 0):.2f}%
+每股盈餘: {fundamental.get('eps', 0):.2f}
 """
 
     # 技術指標
     if stock_info.get('technical') and not is_etf:
         technical = stock_info['technical']
-        if isinstance(technical, dict) and 'ma5' in technical and 'ma10' in technical and 'ma20' in technical:
-            try:
-                message += f"""
+        # 即使缺少某些指標也顯示可用的資訊
+        ma5 = 0
+        ma10 = 0
+        ma20 = 0
+        k_value = 0
+        d_value = 0
+        rsi = 0
+        
+        # 安全地獲取技術指標
+        try:
+            if 'ma5' in technical and technical['ma5'] and len(technical['ma5']) > 0:
+                ma5 = technical['ma5'][-1]
+            if 'ma10' in technical and technical['ma10'] and len(technical['ma10']) > 0:
+                ma10 = technical['ma10'][-1]
+            if 'ma20' in technical and technical['ma20'] and len(technical['ma20']) > 0:
+                ma20 = technical['ma20'][-1]
+            if 'kd' in technical and technical['kd']:
+                if 'k' in technical['kd'] and technical['kd']['k'] and len(technical['kd']['k']) > 0:
+                    k_value = technical['kd']['k'][-1]
+                if 'd' in technical['kd'] and technical['kd']['d'] and len(technical['kd']['d']) > 0:
+                    d_value = technical['kd']['d'][-1]
+            if 'rsi' in technical and technical['rsi'] and len(technical['rsi']) > 0:
+                rsi = technical['rsi'][-1]
+                
+            message += f"""
 技術分析
-MA5: {technical['ma5'][-1]:.2f}
-MA10: {technical['ma10'][-1]:.2f}
-MA20: {technical['ma20'][-1]:.2f}
-KD: K={technical['kd']['k'][-1]:.2f} D={technical['kd']['d'][-1]:.2f}
-RSI: {technical['rsi'][-1]:.2f}
+MA5: {ma5:.2f}
+MA10: {ma10:.2f}
+MA20: {ma20:.2f}
+KD: K={k_value:.2f} D={d_value:.2f}
+RSI: {rsi:.2f}
 """
-            except (IndexError, KeyError, TypeError):
-                message += """
-
+        except (IndexError, KeyError, TypeError):
+            message += """
 技術分析: 無法取得技術指標資料"""
 
     # 法人買賣超
     if stock_info.get('institutional') and not is_etf:
         institutional = stock_info['institutional']
         if isinstance(institutional, dict) and len(institutional) > 1:  # 確保不是空字典或只有type欄位
-            message += f"""
+            # 轉換為數字格式並處理可能的錯誤
+            try:
+                foreign = institutional.get('foreign', 0)
+                foreign = 0 if foreign == 'N/A' else float(foreign)
+                
+                investment_trust = institutional.get('investment_trust', 0)
+                investment_trust = 0 if investment_trust == 'N/A' else float(investment_trust)
+                
+                dealer = institutional.get('dealer', 0)
+                dealer = 0 if dealer == 'N/A' else float(dealer)
+                
+                message += f"""
 法人買賣超
-外資: {institutional.get('foreign', 'N/A')}
-投信: {institutional.get('investment_trust', 'N/A')}
-自營商: {institutional.get('dealer', 'N/A')}
+外資: {foreign:,.0f}
+投信: {investment_trust:,.0f}
+自營商: {dealer:,.0f}
+"""
+            except (ValueError, TypeError):
+                message += f"""
+法人買賣超
+外資: 0
+投信: 0
+自營商: 0
 """
 
     # 融資融券
     if stock_info.get('margin') and not is_etf:
         margin = stock_info['margin']
         if isinstance(margin, dict) and len(margin) > 1:  # 確保不是空字典或只有type欄位
-            message += f"""
+            # 轉換為數字格式並處理可能的錯誤
+            try:
+                margin_balance = margin.get('margin_balance', 0)
+                margin_balance = 0 if margin_balance == 'N/A' else float(margin_balance)
+                
+                short_balance = margin.get('short_balance', 0)
+                short_balance = 0 if short_balance == 'N/A' else float(short_balance)
+                
+                message += f"""
 融資融券
-融資餘額: {margin.get('margin_balance', 'N/A')}
-融券餘額: {margin.get('short_balance', 'N/A')}
+融資餘額: {margin_balance:,.0f}
+融券餘額: {short_balance:,.0f}
+"""
+            except (ValueError, TypeError):
+                message += f"""
+融資融券
+融資餘額: 0
+融券餘額: 0
 """
 
     return message

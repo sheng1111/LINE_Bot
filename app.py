@@ -396,7 +396,9 @@ async def _handle_stock_analysis(stock_code: str) -> str:
             # 獲取 LLM 分析結果
             llm_analysis = gemini.generate_response(analysis_prompt)
 
-            # 結合所有資訊
+            # 結合所有資訊並移除 markdown 格式
+            llm_analysis_clean = remove_markdown(llm_analysis)
+            
             return f"""
 {stock_code} 股票分析報告
 
@@ -407,7 +409,7 @@ async def _handle_stock_analysis(stock_code: str) -> str:
 {technical_analysis if technical_analysis else '無技術分析資料'}
 
 AI 分析：
-{llm_analysis}
+{llm_analysis_clean}
 """
         else:
             return f"無法獲取股票 {stock_code} 的資訊，請確認股票代碼是否正確。"
@@ -800,9 +802,14 @@ def remove_markdown(text: str) -> str:
     :param text: 原始文字
     :return: 移除 markdown 格式後的文字
     """
+    if not text:
+        return ""
+        
     # 移除標題
     text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
-    # 移除粗體和斜體
+    # 移除粗體和斜體 (更全面的模式)
+    text = re.sub(r'(\*\*|\*|__|_)([^*_]+)(\*\*|\*|__|_)', r'\2', text)
+    # 再次檢查任何剩餘的標記
     text = re.sub(r'\*\*|\*|__|_', '', text)
     # 移除連結
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
@@ -814,8 +821,9 @@ def remove_markdown(text: str) -> str:
     text = re.sub(r'`([^`]+)`', r'\1', text)
     # 移除引用
     text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
-    # 移除列表符號
-    text = re.sub(r'^[\s-]*[-*+]\s+', '', text, flags=re.MULTILINE)
+    # 移除列表符號 (更全面的模式)
+    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
     # 移除表格
     text = re.sub(r'\|.*\|', '', text)
     # 移除多餘的空白行
