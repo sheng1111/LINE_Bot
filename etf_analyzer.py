@@ -334,13 +334,145 @@ class ETFAnalyzer:
             logger.error(f"獲取 ETF 排行時發生錯誤：{str(e)}")
             return {}
 
+    def fetch_etf_holdings_yahoo(self, etf_code: str) -> dict:
+        """
+        從 Yahoo Finance 獲取 ETF 成分股資料，包含權重
+        :param etf_code: ETF 代碼
+        :return: 包含成分股代碼和權重的字典
+        """
+        try:
+            import re
+            from bs4 import BeautifulSoup
+            from json import loads
+            
+            logger.info(f"嘗試從 Yahoo Finance 獲取 ETF {etf_code} 的成分股資料")
+            
+            # 構建 URL
+            url = f"https://tw.stock.yahoo.com/quote/{etf_code}.TW/holding"
+            
+            # 添加請求頭，模擬瀏覽器行為
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Connection': 'keep-alive'
+            }
+            
+            # 發送請求
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            # 檢查響應
+            if response.status_code != 200:
+                logger.error(f"從 Yahoo Finance 獲取 ETF {etf_code} 成分股失敗: HTTP {response.status_code}")
+                return {}
+            
+            # 使用 BeautifulSoup 解析 HTML
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # 找到包含數據的 script 標籤
+            script = soup.find("script", string=re.compile("root.App.main"))
+            if not script:
+                logger.error(f"從 Yahoo Finance 獲取 ETF {etf_code} 成分股失敗: 找不到數據腳本")
+                return {}
+            
+            # 提取 JSON 數據
+            data_match = re.search("root.App.main\s+=\s+(\{.*\})", script.text)
+            if not data_match:
+                logger.error(f"從 Yahoo Finance 獲取 ETF {etf_code} 成分股失敗: 無法提取數據")
+                return {}
+            
+            # 尋找包含持股資訊的部分
+            result = re.findall("\[(.*?)\]", data_match.group(1), re.I|re.M)
+            dict_data = ""
+            for item in result:
+                if "ticker" in item and "weighting" in item:
+                    dict_data = item
+                    break
+            
+            if not dict_data:
+                logger.error(f"從 Yahoo Finance 獲取 ETF {etf_code} 成分股失敗: 找不到持股資料")
+                return {}
+            
+            # 轉換為 JSON 格式
+            dict_data_mod = '{"holdingDetail":[' + dict_data + ']}'
+            
+            try:
+                json_data = loads(dict_data_mod)
+                
+                # 提取成分股資訊
+                holdings_data = {}
+                holdings_list = []
+                
+                for holding in json_data['holdingDetail']:
+                    ticker = holding.get('ticker', '')
+                    name = holding.get('name', '')
+                    weight = holding.get('weighting', 0)
+                    
+                    # 提取股票代碼（去除 .TW 後綴）
+                    stock_code = ticker.split('.')[0] if '.' in ticker else ticker
+                    
+                    if stock_code and stock_code.isdigit():
+                        holdings_data[stock_code] = {
+                            'name': name,
+                            'weight': weight
+                        }
+                        holdings_list.append(stock_code)
+                
+                # 更新資料庫 - 保存詳細資訊
+                collection = db.get_collection('etf_holdings_detail')
+                collection.update_one(
+                    {'etf_code': etf_code},
+                    {
+                        '$set': {
+                            'holdings_data': holdings_data,
+                            'updated_at': datetime.now()
+                        }
+                    },
+                    upsert=True
+                )
+                
+                logger.info(f"成功從 Yahoo Finance 獲取 ETF {etf_code} 的 {len(holdings_data)} 個成分股")
+                return holdings_data
+                
+            except Exception as e:
+                logger.error(f"解析 Yahoo Finance ETF {etf_code} 成分股數據時發生錯誤: {str(e)}")
+                return {}
+                
+        except Exception as e:
+            logger.error(f"從 Yahoo Finance 獲取 ETF {etf_code} 成分股時發生錯誤: {str(e)}")
+            return {}
+
     def fetch_etf_holdings(self, etf_code: str) -> List[str]:
         """
-        從台灣證交所獲取 ETF 成分股資料
+        獲取 ETF 成分股資料，優先使用 Yahoo Finance，失敗則使用台灣證交所
         :param etf_code: ETF 代碼
         :return: 成分股代碼列表
         """
         try:
+            # 首先嘗試從 Yahoo Finance 獲取詳細資料（包含權重）
+            yahoo_holdings = self.fetch_etf_holdings_yahoo(etf_code)
+            if yahoo_holdings:
+                # 如果成功獲取，返回成分股代碼列表
+                holdings = list(yahoo_holdings.keys())
+                
+                # 更新資料庫 - 保存簡單列表
+                collection = db.get_collection('etf_holdings')
+                collection.update_one(
+                    {'etf_code': etf_code},
+                    {
+                        '$set': {
+                            'holdings': holdings,
+                            'updated_at': datetime.now()
+                        }
+                    },
+                    upsert=True
+                )
+                
+                return holdings
+            
+            # 如果 Yahoo Finance 失敗，使用台灣證交所 API
+            logger.info(f"從 Yahoo Finance 獲取失敗，嘗試使用台灣證交所 API 獲取 ETF {etf_code} 成分股")
+            
             # 獲取當前日期
             today = datetime.now()
             date_str = today.strftime('%Y%m%d')
@@ -381,7 +513,7 @@ class ETFAnalyzer:
                     if stock_code.isdigit():  # 確保是有效的股票代碼
                         holdings.append(stock_code)
             
-            logger.info(f"成功獲取 ETF {etf_code} 的 {len(holdings)} 個成分股")
+            logger.info(f"成功從台灣證交所獲取 ETF {etf_code} 的 {len(holdings)} 個成分股")
             
             # 更新資料庫
             collection = db.get_collection('etf_holdings')
@@ -407,7 +539,11 @@ class ETFAnalyzer:
         try:
             # 檢查快取
             cache_key = f"overlap_{'_'.join(sorted(etf_codes))}"
-            if cache_key in self.cache:
+            
+            # 對於熱門 ETF，總是獲取最新資料
+            force_refresh = any(etf in self.popular_etfs for etf in etf_codes)
+            
+            if not force_refresh and cache_key in self.cache:
                 cache_data = self.cache[cache_key]
                 if datetime.now() - cache_data['timestamp'] < self.cache_timeout:
                     return cache_data['data']
@@ -416,24 +552,49 @@ class ETFAnalyzer:
             overlap_stocks = {}
 
             for etf_code in etf_codes:
-                # 獲取 ETF 成分股
-                holdings = self.fetch_etf_holdings(etf_code)
+                # 首先嘗試從 etf_holdings_detail 獲取詳細的成分股資料（包含權重）
+                detail_collection = db.get_collection('etf_holdings_detail')
+                detailed_holdings = detail_collection.find_one({'etf_code': etf_code})
                 
-                # 如果無法從網路獲取，嘗試從資料庫獲取
-                if not holdings:
-                    collection = db.get_collection('etf_holdings')
-                    etf_data = collection.find_one({'etf_code': etf_code})
-                    if etf_data and 'holdings' in etf_data:
-                        holdings = etf_data['holdings']
-                
-                # 處理成分股資料
-                if holdings:
-                    for stock_code in holdings:
+                if detailed_holdings and 'holdings_data' in detailed_holdings:
+                    # 使用詳細的成分股資料（包含權重）
+                    holdings_dict = detailed_holdings.get('holdings_data', {})
+                    
+                    for stock_code, stock_info in holdings_dict.items():
+                        weight = stock_info.get('weight', 0)
+                        
                         if stock_code not in overlap_stocks:
                             overlap_stocks[stock_code] = {
-                                'etfs': [], 'weight': 1.0  # 使用預設權重
+                                'etfs': [], 
+                                'weight': 0,
+                                'weights': {}
                             }
+                        
                         overlap_stocks[stock_code]['etfs'].append(etf_code)
+                        overlap_stocks[stock_code]['weights'][etf_code] = weight
+                        overlap_stocks[stock_code]['weight'] += weight  # 累計權重
+                else:
+                    # 獲取基本 ETF 成分股列表
+                    holdings = self.fetch_etf_holdings(etf_code)
+                    
+                    # 如果無法從網路獲取，嘗試從資料庫獲取
+                    if not holdings:
+                        collection = db.get_collection('etf_holdings')
+                        etf_data = collection.find_one({'etf_code': etf_code})
+                        if etf_data and 'holdings' in etf_data:
+                            holdings = etf_data['holdings']
+                    
+                    # 處理成分股資料
+                    if holdings:
+                        for stock_code in holdings:
+                            if stock_code not in overlap_stocks:
+                                overlap_stocks[stock_code] = {
+                                    'etfs': [], 
+                                    'weight': 1.0,  # 使用預設權重
+                                    'weights': {}
+                                }
+                            overlap_stocks[stock_code]['etfs'].append(etf_code)
+                            overlap_stocks[stock_code]['weights'][etf_code] = 1.0  # 使用預設權重
 
             # 過濾出重疊的股票
             result = {
@@ -623,15 +784,47 @@ class ETFAnalyzer:
             if not etf_info or 'error' in etf_info:
                 return {'error': f'無法獲取 ETF {etf_code} 的資訊'}
 
-            # 從資料庫獲取成分股資料
+            # 首先嘗試從 etf_holdings_detail 獲取詳細的成分股資料（包含權重）
+            detail_collection = db.get_collection('etf_holdings_detail')
+            detailed_holdings = detail_collection.find_one({'etf_code': etf_code})
+            
+            # 從基本成分股資料庫獲取成分股列表
             collection = db.get_collection('etf_holdings')
             holdings_data = collection.find_one({'etf_code': etf_code})
 
             # 分析產業分布
             industry_dist = {}
             top_holdings = []
-
-            if holdings_data and 'holdings' in holdings_data:
+            
+            # 如果有詳細的成分股資料（包含權重），優先使用
+            if detailed_holdings and 'holdings_data' in detailed_holdings:
+                holdings_dict = detailed_holdings.get('holdings_data', {})
+                
+                # 將所有成分股按權重排序
+                sorted_holdings = sorted(holdings_dict.items(), key=lambda x: x[1].get('weight', 0), reverse=True)
+                
+                # 取前十大持股
+                for i, (stock_code, stock_info) in enumerate(sorted_holdings):
+                    if i >= 10:  # 只取前十大
+                        break
+                        
+                    # 找出股票所屬產業
+                    for industry, stocks in self.industry_mapping.items():
+                        if stock_code in stocks:
+                            if industry not in industry_dist:
+                                industry_dist[industry] = 0
+                            industry_dist[industry] += stock_info.get('weight', 0)
+                            break
+                    
+                    # 添加到前十大持股
+                    top_holdings.append({
+                        'code': stock_code,
+                        'name': stock_info.get('name', 'Unknown'),
+                        'weight': stock_info.get('weight', 0)
+                    })
+                    
+            # 如果沒有詳細資料，則使用基本成分股資料
+            elif holdings_data and 'holdings' in holdings_data:
                 holdings = holdings_data.get('holdings', [])
                 for stock in holdings:
                     # 處理 stock 可能是字符串的情況
