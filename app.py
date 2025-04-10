@@ -24,7 +24,6 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 # 系統與工具模組
 import os
 import re
-import logging
 import uvicorn
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -32,31 +31,22 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 # 自定義模組
-from database import db
-from gemini_client import gemini
-from stock_analyzer import analyzer as stock_analyzer
-from etf_analyzer import analyzer as etf_analyzer
-from daily_recommender import DailyRecommender
-from dividend_analyzer import analyzer as dividend_analyzer
-from peer_comparator import comparator
-from stock_info import get_stock_info, format_stock_info
-from futures_info import get_futures_info, format_futures_info
-from twse_api import twse_api
+from services.stock_service import stock_service, format_stock_info
+from services.etf_service import etf_service
+from services.market_service import market_service, format_futures_info
+from services.database import db
+from services.gemini_client import gemini
+from services.stock_analyzer import stock_analyzer
+from services.daily_recommender import DailyRecommender
+from services.dividend_analyzer import dividend_analyzer
+from services.stock_comparator import comparator
+from services.twse_api import twse_api
+from utils.cache import cache
+from utils.logger import logger
 
 # ======== 基本設定 ========
 # 載入環境變數
 load_dotenv()
-
-# 設定日誌
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
 # 全域變數宣告
 handler = None
@@ -147,7 +137,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="LINE Bot 股票資訊助手",
     description="提供股票、ETF查詢和分析服務的 LINE Bot API",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan
 )
 
@@ -221,13 +211,13 @@ async def _handle_message_async(event):
         command, params = await _analyze_user_intent(user_message)
         
         # 處理使用者意圖並生成回應
-        response = await _process_command(command, params, user_id, reply_token)
+        response = await _process_command(command, params, user_id, reply_token, user_message)
         
         # 確保回應不為空且是字符串
         if not response:
             response = "抱歉，發生未知錯誤，請稍後再試。"
         elif not isinstance(response, str):
-            response = str(response)
+            response = str(await response)
             
         # 回覆訊息
         await line_bot_api.reply_message(
@@ -272,7 +262,8 @@ async def _analyze_user_intent(user_message: str) -> tuple:
     7. ETF_OVERLAP - ETF 重疊分析（參數：ETF代碼1,ETF代碼2）
     8. MARKET_NEWS - 市場新聞（無參數）
     9. STOCK_NEWS - 個股新聞（參數：股票代碼）
-    10. GENERAL_QUERY - 一般問答（無參數）
+    10. PRICE_ALERT - 設定提醒（參數：股票代碼 價格）
+    11. GENERAL_QUERY - 一般問答（無參數）
 
     請根據以下規則判斷：
     - 如果只是查詢股票現況（如：2330現在多少錢？），使用 STOCK_QUERY
@@ -284,6 +275,7 @@ async def _analyze_user_intent(user_message: str) -> tuple:
     - 如果要求 ETF 重疊分析，使用 ETF_OVERLAP
     - 如果要求市場新聞，使用 MARKET_NEWS
     - 如果要求個股新聞，使用 STOCK_NEWS
+    - 如果要求價格提醒，使用 PRICE_ALERT
     - 如果無法確定，使用 GENERAL_QUERY
 
     請只返回如下格式：
@@ -292,7 +284,7 @@ async def _analyze_user_intent(user_message: str) -> tuple:
     """
 
     # 獲取意圖分析結果
-    intent_result = gemini.generate_response(intent_prompt).strip()
+    intent_result = (await gemini.generate_response(intent_prompt)).strip()
 
     # 解析意圖結果
     command = None
@@ -306,13 +298,14 @@ async def _analyze_user_intent(user_message: str) -> tuple:
             
     return command, params
 
-async def _process_command(command: str, params: str, user_id: str, reply_token: str) -> str:
+async def _process_command(command: str, params: str, user_id: str, reply_token: str, user_message: str) -> str:
     """
     處理使用者命令
     :param command: 命令類型
     :param params: 命令參數
     :param user_id: 使用者ID
     :param reply_token: 回覆標記
+    :param user_message: 使用者訊息
     :return: 回應訊息
     """
     try:
@@ -335,13 +328,40 @@ async def _process_command(command: str, params: str, user_id: str, reply_token:
             return await _handle_market_news()
         elif command == 'STOCK_NEWS' and params:
             return await _handle_stock_news(params)
+        elif command == 'PRICE_ALERT' and params:
+            try:
+                stock_code, price = params.split()
+                target_price = float(price)
+                return await _handle_price_alert(stock_code, target_price, user_id)
+            except ValueError:
+                return "請輸入正確的股票代碼和目標價格，格式：提醒 股票代碼 價格"
+        elif command == 'GENERAL_QUERY':
+            return await handle_general_query(user_message)
         else:
             # 使用 LLM 處理一般問答
-            return await _handle_general_query(user_id, params if params else command, reply_token)
+            return await handle_general_query(user_message)
     except Exception as e:
         logger.error(f"處理命令 {command} 時發生錯誤: {str(e)}")
         return f"處理您的請求時發生錯誤。請稍後再試。"
 
+async def handle_general_query(message: str) -> str:
+    """處理一般問答查詢
+    :param message: 用戶輸入的文字
+    :return: AI 的回答
+    """
+    prompt = f"""
+    請回答以下問題：
+    {message}
+
+    要求：
+    1. 保持友善和專業 
+    2. 回答要簡短，不超過 200 字
+    3. 如果是投資相關問題，可以提供專業建議
+    4. 如果是其他問題，就正常回答
+    5. 用繁體中文回答
+    """
+    response = await gemini.generate_response(prompt)
+    return remove_markdown(response)
 
 async def _handle_stock_query(stock_code: str) -> str:
     """
@@ -351,7 +371,7 @@ async def _handle_stock_query(stock_code: str) -> str:
     """
     try:
         # 單純查詢股票資訊
-        stock_info = get_stock_info(stock_code)
+        stock_info = stock_service.get_stock_info(stock_code)
         if stock_info and isinstance(stock_info, dict):
             return format_stock_info(stock_info)
         else:
@@ -359,200 +379,144 @@ async def _handle_stock_query(stock_code: str) -> str:
     except Exception as e:
         logger.error(f"獲取股票資訊時發生錯誤：{str(e)}")
         return f"獲取股票 {stock_code} 資訊時發生錯誤，請稍後再試。"
+
 async def _handle_stock_analysis(stock_code: str) -> str:
-    """
-    處理股票分析
-    :param stock_code: 股票代碼
-    :return: 回應訊息
-    """
+    """處理股票分析"""
     try:
-        # 獲取股票基本資訊
-        stock_info = get_stock_info(stock_code)
-        if stock_info and isinstance(stock_info, dict):
-            # 使用 stock_analyzer 進行技術分析
-            technical_analysis = stock_analyzer.analyze_stock(stock_code)
-
-            # 使用 LLM 進行綜合分析
+        stock_info = stock_service.get_stock_info(stock_code)
+        if stock_info and 'error' not in stock_info:
+            # 使用 LLM 分析股票資料
             analysis_prompt = f"""
-            請根據以下股票資訊進行分析：
-
-            股票代碼：{stock_code}
-            基本資訊：
+            請分析以下股票資料並給出專業的見解：
             {format_stock_info(stock_info)}
 
-            技術分析：
-            {technical_analysis if technical_analysis else '無技術分析資料'}
-
-            請提供以下分析：
-            1. 當前股價走勢分析
-            2. 成交量變化分析
-            3. 技術指標解讀
-            4. 短期和中期趨勢判斷
-            5. 投資建議
-
-            請用簡潔明異的方式回答，重點突出關鍵資訊。
+            請用通俗易懂的語言總結重要資訊，並給出簡短的分析。
             """
-
-            # 獲取 LLM 分析結果
-            llm_analysis = gemini.generate_response(analysis_prompt)
-
-            # 結合所有資訊並移除 markdown 格式
-            llm_analysis_clean = remove_markdown(llm_analysis)
-            
-            return f"""
-{stock_code} 股票分析報告
-
-基本資訊：
-{format_stock_info(stock_info)}
-
-技術分析：
-{technical_analysis if technical_analysis else '無技術分析資料'}
-
-AI 分析：
-{llm_analysis_clean}
-"""
+            analysis = await gemini.generate_response(analysis_prompt)
+            return f"{format_stock_info(stock_info)}\n\n分析：\n{analysis}"
         else:
-            return f"無法獲取股票 {stock_code} 的資訊，請確認股票代碼是否正確。"
+            error_msg = stock_info.get('error', '無法獲取該股票資訊') if stock_info else '無法獲取該股票資訊'
+            return f"抱歉，{error_msg}。"
     except Exception as e:
         logger.error(f"分析股票時發生錯誤：{str(e)}")
         return f"分析股票 {stock_code} 時發生錯誤，請稍後再試。"
+
 async def _handle_etf_analysis(etf_code: str) -> str:
-    """
-    處理ETF分析
-    :param etf_code: ETF代碼
-    :return: 回應訊息
-    """
+    """處理 ETF 分析"""
     try:
-        result = etf_analyzer.analyze_etf(etf_code)
-        if 'error' in result:
-            return result['error']
-        else:
-            return etf_analyzer.format_etf_analysis(result)
+        analysis = etf_service.analyze_etf(etf_code)
+        if analysis:
+            return analysis
+        return f"無法分析 ETF {etf_code}，請確認代碼是否正確。"
     except Exception as e:
         logger.error(f"分析 ETF 時發生錯誤：{str(e)}")
         return f"分析 ETF {etf_code} 時發生錯誤，請稍後再試。"
+
 async def _handle_dividend_analysis(stock_code: str) -> str:
-    """
-    處理除權息分析
-    :param stock_code: 股票代碼
-    :return: 回應訊息
-    """
+    """處理除權息分析"""
     try:
-        result = dividend_analyzer.analyze_dividend(stock_code)
-        return result if result else f"無法分析股票 {stock_code} 的除權息資訊，請確認股票代碼是否正確。"
+        analysis = dividend_analyzer.analyze_dividend(stock_code)
+        if analysis:
+            return analysis
+        return f"無法獲取 {stock_code} 的除權息資訊，請確認代碼是否正確。"
     except Exception as e:
         logger.error(f"分析除權息時發生錯誤：{str(e)}")
-        return f"分析股票 {stock_code} 的除權息資訊時發生錯誤，請稍後再試。"
+        return f"分析 {stock_code} 的除權息資訊時發生錯誤，請稍後再試。"
+
 async def _handle_peer_comparison(stock_code: str) -> str:
-    """
-    處理同類股比較
-    :param stock_code: 股票代碼
-    :return: 回應訊息
-    """
+    """處理同類股比較"""
     try:
-        result = comparator.compare_stocks(stock_code)
-        return result if result else f"無法比較股票 {stock_code}，請確認股票代碼是否正確。"
+        comparison = comparator.compare_stocks(stock_code)
+        if comparison:
+            return comparison
+        return f"無法進行 {stock_code} 的同類股比較，請確認代碼是否正確。"
     except Exception as e:
-        logger.error(f"比較股票時發生錯誤：{str(e)}")
-        return f"比較股票 {stock_code} 時發生錯誤，請稍後再試。"
+        logger.error(f"進行同類股比較時發生錯誤：{str(e)}")
+        return f"比較 {stock_code} 的同類股時發生錯誤，請稍後再試。"
+
 async def _handle_futures_info() -> str:
-    """
-    處理台指期資訊查詢
-    :return: 回應訊息
-    """
+    """處理台指期資訊"""
     try:
-        futures_info = get_futures_info()
-        return format_futures_info(futures_info) if futures_info else "無法獲取台指期資訊，請稍後再試。"
+        info = market_service.get_futures_info()
+        if info:
+            return format_futures_info(info)
+        return "無法獲取台指期資訊。"
     except Exception as e:
         logger.error(f"獲取台指期資訊時發生錯誤：{str(e)}")
         return "獲取台指期資訊時發生錯誤，請稍後再試。"
-async def _handle_etf_overlap(params: str) -> str:
-    """
-    處理ETF重疊分析
-    :param params: ETF代碼列表（逗號分隔）
-    :return: 回應訊息
-    """
-    try:
-        etf_codes = params.split(',')
-        analysis = await analyze_etf_overlap(etf_codes)
-        return analysis if analysis else f"無法分析 ETF {params} 的重疊情況，請確認 ETF 代碼是否正確。"
-    except Exception as e:
-        logger.error(f"分析 ETF 重疊時發生錯誤：{str(e)}")
-        return f"分析 ETF {params} 的重疊情況時發生錯誤，請稍後再試。"
 
+async def _handle_etf_overlap(params: str) -> str:
+    """處理 ETF 重疊分析"""
+    try:
+        etf_codes = params.split()
+        if len(etf_codes) != 2:
+            return "請提供兩個 ETF 代碼進行比較。"
+            
+        analysis = await analyze_etf_overlap(etf_codes)
+        if analysis:
+            return format_overlap_analysis(analysis)
+        return "無法進行 ETF 重疊分析，請確認代碼是否正確。"
+    except Exception as e:
+        logger.error(f"進行 ETF 重疊分析時發生錯誤：{str(e)}")
+        return "進行 ETF 重疊分析時發生錯誤，請稍後再試。"
 
 async def _handle_market_news() -> str:
-    """
-    處理市場新聞查詢
-    :return: 回應訊息
-    """
+    """處理市場新聞"""
     try:
         news = twse_api.get_market_news()
         if news:
             response = "📰 最新市場新聞：\n\n"
-            for item in news[:5]:  # 只顯示最新的 5 則新聞
-                response += f"📌 {item['title']}\n"
-                response += f"🔗 {item['link']}\n"
-                response += f"⏰ {item['pubDate']}\n\n"
+            for i, item in enumerate(news[:5], 1):
+                response += f"{i}. {item['title']}\n"
+                response += f"   {item['date']}\n\n"
             return response
-        else:
-            return "目前沒有最新市場新聞。"
+        return "目前沒有最新市場新聞。"
     except Exception as e:
         logger.error(f"獲取市場新聞時發生錯誤：{str(e)}")
         return "獲取市場新聞時發生錯誤，請稍後再試。"
 
-
 async def _handle_stock_news(stock_code: str) -> str:
-    """
-    處理個股新聞查詢
-    :param stock_code: 股票代碼
-    :return: 回應訊息
-    """
+    """處理個股新聞"""
     try:
         news = twse_api.get_stock_news(stock_code)
         if news:
-            response = f"📰 {stock_code} 最新新聞：\n\n"
-            for item in news[:5]:  # 只顯示最新的 5 則新聞
-                response += f"📌 {item['title']}\n"
-                response += f"🔗 {item['link']}\n"
-                response += f"⏰ {item['pubDate']}\n\n"
+            response = f"📰 {stock_code} 相關新聞：\n\n"
+            for i, item in enumerate(news[:5], 1):
+                response += f"{i}. {item['title']}\n"
+                response += f"   {item['date']}\n\n"
             return response
-        else:
-            return f"目前沒有 {stock_code} 的最新新聞。"
+        return f"目前沒有 {stock_code} 的相關新聞。"
     except Exception as e:
         logger.error(f"獲取個股新聞時發生錯誤：{str(e)}")
-        return f"獲取股票 {stock_code} 的新聞時發生錯誤，請稍後再試。"
+        return f"獲取 {stock_code} 的新聞時發生錯誤，請稍後再試。"
 
-
-async def _handle_general_query(user_id: str, query: str, reply_token: str) -> str:
-    """
-    處理一般問答
-    :param user_id: 使用者ID
-    :param query: 查詢內容
-    :param reply_token: 回覆標記
-    :return: 回應訊息
-    """
+async def _handle_price_alert(stock_code: str, target_price: float, user_id: str) -> str:
+    """處理股價提醒設定"""
     try:
-        # 使用 LLM 處理一般問答
-        prompt = f"""
-        請回答以下問題：
-        {query}
-
-        要求：
-        1. 保持友善和專業
-        2. 回答要簡短，不超過 200 字
-        3. 如果是投資相關問題，可以提供專業建議
-        4. 如果是其他問題，就正常回答
-        5. 用繁體中文回答
-        """
-        response = gemini.generate_response(prompt)
-        return remove_markdown(response) if response else "抱歉，我無法理解您的問題，請換個方式詢問。"
+        # 檢查用戶當月提醒設定數量
+        alerts_collection = db.get_collection('price_alerts')
+        current_month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        user_alerts = alerts_collection.count_documents({
+            'user_id': user_id,
+            'created_at': {'$gte': current_month}
+        })
+        
+        if user_alerts >= 2:
+            return "您本月已達到設定提醒的上限（2個），請下月再試。"
+            
+        # 新增提醒設定
+        alerts_collection.insert_one({
+            'user_id': user_id,
+            'stock_code': stock_code,
+            'target_price': target_price,
+            'created_at': datetime.now(),
+            'status': 'active'
+        })
+        
+        return f"已設定 {stock_code} 的價格提醒：{target_price} 元"
     except Exception as e:
-        logger.error(f"處理一般問答時發生錯誤：{str(e)}")
-        return "處理您的問題時發生錯誤，請稍後再試。"
-
-
-
+        logger.error(f"設定價格提醒時發生錯誤：{str(e)}")
+        return "設定價格提醒時發生錯誤，請稍後再試。"
 
 @app.post("/callback")
 async def callback(request: Request):
@@ -690,7 +654,7 @@ async def analyze_etf_overlap(etf_codes=None, max_retries=3):
         overlap_analysis = {}
         etf_codes = list(etf_holdings.keys())
 
-        for i in range(len(etf_codes)):
+        for i in len(etf_codes):
             for j in range(i + 1, len(etf_codes)):
                 etf1 = etf_codes[i]
                 etf2 = etf_codes[j]
@@ -762,14 +726,15 @@ async def send_etf_overlap_analysis(max_retries=3):
         
         # 使用 ETFAnalyzer 的新方法直接從網路獲取最新的 ETF 成分股資料
         logger.info("開始獲取最新的 ETF 成分股資料")
-        analysis = etf_analyzer.analyze_etf_overlap(popular_etfs)
+        analysis = etf_service.analyze_etf_overlap(popular_etfs)
         
+        # Check if analysis exists and has overlap_stocks
         if not analysis or not analysis.get('overlap_stocks'):
             logger.warning("沒有生成 ETF 重疊分析結果或沒有重疊股票")
             return
 
         # 格式化分析結果
-        message = etf_analyzer.format_overlap_analysis(analysis)
+        message = etf_service.format_overlap_analysis(analysis)
         logger.info(f"已生成 ETF 重疊分析結果，找到 {len(analysis['overlap_stocks'])} 個重疊股票")
 
         # 發送給每個使用者
@@ -842,6 +807,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
 
         # 1. 處理簡單問候語
         greetings = ['hi', 'hello', '你好', '哈囉', '嗨']
+        # Check greeting messages
         if message.lower() in greetings or any(greeting in message.lower() for greeting in greetings):
             response = "你好！我是一個 AI 助手，很高興為您服務！我擅長投資理財相關的諮詢，但也可以回答其他問題。"
             await line_bot_api.reply_message(
@@ -883,7 +849,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
         """
 
         # 獲取意圖分析結果
-        intent_result = gemini.generate_response(intent_prompt).strip()
+        intent_result = (await gemini.generate_response(intent_prompt)).strip()
 
         # 解析意圖結果
         command = None
@@ -905,7 +871,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                 
                 try:
                     # 獲取股票資訊
-                    stock_info = get_stock_info(stock_code)
+                    stock_info = stock_service.get_stock_info(stock_code)
                     
                     if stock_info and isinstance(stock_info, dict) and 'error' not in stock_info:
                         response = format_stock_info(stock_info)
@@ -920,7 +886,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
             elif command == 'STOCK_ANALYSIS' and params:
                 # 處理股票分析
                 try:
-                    stock_info = get_stock_info(params)
+                    stock_info = stock_service.get_stock_info(params)
                     if stock_info and 'error' not in stock_info:
                         # 使用 LLM 分析股票資料
                         analysis_prompt = f"""
@@ -929,7 +895,7 @@ async def process_message(user_id, message, reply_token, max_retries=3):
 
                         請用通俗易懂的語言總結重要資訊，並給出簡短的分析。
                         """
-                        analysis = gemini.generate_response(analysis_prompt)
+                        analysis = await gemini.generate_response(analysis_prompt)
                         response = f"{format_stock_info(stock_info)}\n\n分析：\n{analysis}"
                     else:
                         error_msg = stock_info.get('error', '無法獲取該股票資訊') if stock_info else '無法獲取該股票資訊'
@@ -981,9 +947,8 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                 logger.info(f"處理 ETF 查詢: {etf_code}")
                 
                 try:
-                    # 使用 stock_info 模組的 get_stock_info 函數獲取 ETF 資訊
-                    from stock_info import get_stock_info, format_stock_info
-                    etf_info = get_stock_info(etf_code)
+                    # 使用 stock_service 獲取 ETF 資訊
+                    etf_info = stock_service.get_stock_info(etf_code)
                     
                     if etf_info and isinstance(etf_info, dict) and 'error' not in etf_info:
                         response = format_stock_info(etf_info)
@@ -1005,11 +970,14 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                     logger.info(f"處理 ETF 重疊分析: {etf_code1} 和 {etf_code2}")
                     
                     try:
-                        # 使用我們修改過的 fetch_etf_holdings 方法直接從網路獲取最新的 ETF 成分股資料
-                        holdings1 = etf_analyzer.fetch_etf_holdings(etf_code1)
-                        holdings2 = etf_analyzer.fetch_etf_holdings(etf_code2)
+                        # 使用 etf_service 獲取 ETF 成分股資料
+                        holdings1 = etf_service.get_etf_holdings(etf_code1)
+                        holdings2 = etf_service.get_etf_holdings(etf_code2)
                         
-                        if holdings1 and holdings2 and isinstance(holdings1, list) and isinstance(holdings2, list):
+                        # Check ETF holdings data
+                        if (holdings1 and holdings2 and 
+                            isinstance(holdings1, list) and 
+                            isinstance(holdings2, list)):
                             # 計算重疊成分股
                             overlap = set(holdings1) & set(holdings2)
 
@@ -1056,50 +1024,13 @@ async def process_message(user_id, message, reply_token, max_retries=3):
                     response = "無法獲取市場排行資訊。"
 
             elif command == 'GENERAL_QUERY':
-                # 使用 LLM 處理一般問答
-                prompt = f"""
-                請回答以下問題：
-                {message}
-
-                要求：
-                1. 保持友善和專業
-                2. 回答要簡短，不超過 200 字
-                3. 如果是投資相關問題，可以提供專業建議
-                4. 如果是其他問題，就正常回答
-                5. 用繁體中文回答
-                """
-                response = gemini.generate_response(prompt)
-                response = remove_markdown(response)
+                response = await handle_general_query(message)
             else:
                 # 其他命令暫未實現，使用一般問答處理
-                prompt = f"""
-                請回答以下問題：
-                {message}
-
-                要求：
-                1. 保持友善和專業
-                2. 回答要簡短，不超過 200 字
-                3. 如果是投資相關問題，可以提供專業建議
-                4. 如果是其他問題，就正常回答
-                5. 用繁體中文回答
-                """
-                response = gemini.generate_response(prompt)
-                response = remove_markdown(response)
+                response = await handle_general_query(message)
         else:
             # 如果無法判斷意圖，使用一般問答處理
-            prompt = f"""
-            請回答以下問題：
-            {message}
-
-            要求：
-            1. 保持友善和專業
-            2. 回答要簡短，不超過 200 字
-            3. 如果是投資相關問題，可以提供專業建議
-            4. 如果是其他問題，就正常回答
-            5. 用繁體中文回答
-            """
-            response = gemini.generate_response(prompt)
-            response = remove_markdown(response)
+            response = await handle_general_query(message)
 
         await line_bot_api.reply_message(
             ReplyMessageRequest(
