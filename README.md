@@ -66,14 +66,26 @@
 1. 克隆專案
    ```bash
    git clone https://github.com/sheng1111/LINE_Bot.git
+   cd LINE_Bot
    ```
 
-2. 安裝依賴
+2. 建立虛擬環境
+   ```bash
+   python -m venv .venv
+   
+   # Windows 啟動虛擬環境
+   .venv\Scripts\activate
+   
+   # Linux/Mac 啟動虛擬環境
+   source .venv/bin/activate
+   ```
+
+3. 安裝依賴
    ```bash
    pip install -r requirements.txt
    ```
 
-3. 設定環境變數
+4. 設定環境變數
    在專案根目錄建立 .env 檔案，並設定以下參數：
    ```
    # LINE Bot 設定
@@ -95,9 +107,33 @@
    ETF_ANALYSIS_DAYS=7,14
    ```
 
-4. 啟動服務
+5. LINE Bot 設定
+   1. 前往 [LINE Developers Console](https://developers.line.biz/console/)
+   2. 建立新的 Provider 和 Channel
+   3. 在 Messaging API 設定頁面：
+      - 取得 Channel Secret 和 Channel Access Token
+      - 設定 Webhook URL：`https://你的網域/callback`
+      - 開啟 "Use webhook"
+   
+   部署方式有兩種：
+
+   A. 使用 Render 部署
+   - 部署到 Render 後，設定 Webhook URL 為：
+     `https://你的render網域/callback`
+
+   B. 本地開發測試
+   - 安裝 ngrok：`pip install pyngrok`
+   - 啟動 ngrok：
+     ```bash
+     ngrok http 8000
+     ```
+   - 複製 ngrok 提供的 HTTPS URL，設定為 Webhook URL：
+     `https://xxxx.ngrok.io/callback`
+
+6. 啟動服務
    ```bash
-   python app.py
+   # 使用 FastAPI + uvicorn
+   uvicorn app:app --host 0.0.0.0 --port 8000
    ```
 
 ## 專案結構
