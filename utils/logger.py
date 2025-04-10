@@ -11,7 +11,7 @@ def setup_logger(name: str, log_file: str = 'app.log') -> logging.Logger:
     os.makedirs('logs', exist_ok=True)
     file_path = os.path.join('logs', log_file)
 
-    # 檔案處理器 (每個檔案最大 5MB，保留 5 個檔案),加入 UTF-8 編碼
+    # 檔案處理器 (每個檔案最大 5MB，保留 5 個檔案)
     file_handler = RotatingFileHandler(
         file_path, 
         maxBytes=5*1024*1024, 
@@ -20,14 +20,13 @@ def setup_logger(name: str, log_file: str = 'app.log') -> logging.Logger:
     )
     file_handler.setLevel(logging.INFO)
 
-    # 控制台處理器,加入 UTF-8 編碼
+    # 控制台處理器
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
 
     # 格式化
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        encoding='utf-8'
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
